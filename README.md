@@ -1,123 +1,164 @@
 # Setup for Non-Coders
 
-**XHTMLChop Growth Agent — Phase 1**
+**XHTMLChop Growth Agent — live workspace**
 
-A private workspace for growing white-label agency partnerships outside India. Phase 1 includes the dashboard, 20 fictional leads, business settings, light/dark mode, Supabase sign-in, a private database design, and a storage foundation. The complete sales automation system is built over eight phases.
+This version uses your own Supabase account. It contains no sample leads, simulated emails, pretend revenue, or browser-only business settings. Sign-in, business settings, manual lead entry and stage/value updates, leads-and-settings export, and dashboard totals use your real database records. Your workspace starts empty.
 
-## 1. What you can try today
+Email sending, automated prospecting/enrichment, CSV import, reply handling, payments, delivery tools, and shared teams are not implemented yet. Their navigation entries are marked as planned and cannot be opened. No background jobs run or messages are sent. Approval Mode and the automation-off guard remain in place until those features are implemented.
 
-- Dashboard with sample KPIs, funnel, markets, and opportunity values.
-- Browse 20 fictional leads, search, filter by country, and open their details.
-- Edit services, business address, pricing, turnaround, notification email, and FAQ text in Settings.
-- Save demo preferences in your browser; refresh to confirm they remain saved.
-- Toggle dark mode and try the layout on a narrow screen.
-- Export the workspace as JSON.
+## 1. Get the latest project on Windows
 
-**Demo Mode sends nothing and calls no AI services.** Dashboard counts, score values, charts, and attention reminders are illustrative. The revenue panel shows won opportunity value, not banked revenue. The decorative revenue bar chart is illustrative. Demo reporting dates are anchored to October 2026. Daily limits, mode switches, and automation controls are saved preferences only in Phase 1. Live automation is locked off. Later navigation sections clearly show their future phase.
+1. Keep your working Node.js/NVM installation. Open **VS Code → File → Open Folder** and select your existing `Xchop-Agent` project folder.
+2. Choose **Terminal → New Terminal**. Run:
 
-## 2. Install two free tools
+   ```powershell
+   git pull origin main
+   npm ci
+   ```
 
-1. Open https://nodejs.org and install **Node.js 22 LTS or newer** using the default installer options.
-2. Open https://code.visualstudio.com and install **Visual Studio Code**.
-3. Unzip the supplied project. In VS Code, choose **File → Open Folder** and select the folder containing `package.json`.
-4. Choose **Terminal → New Terminal**. A text panel opens along the bottom of the window. Type each command below there, pressing Enter after each.
+   If you downloaded a ZIP instead of using Git, download the latest ZIP from [your repository](https://github.com/dipeshc21/Xchop-Agent), extract it into a new folder, and open that folder. Keep your private `.env.local` file separate from downloaded archives.
+3. The folder should contain `package.json`, `README.md`, `app`, and `supabase`.
 
-## 3. Start the demo — no accounts needed
+## 2. Create your Supabase project
 
-1. Type `npm ci` and wait until installation finishes. If no lockfile is present, use `npm install` instead.
-2. In the VS Code file list, find `.env.example`. Copy it to a new file called `.env.local`. The beginning should look like this:
+1. Open [Supabase Dashboard](https://supabase.com/dashboard) and create a free account.
+2. Choose **New project**. Enter a project name such as `XHTMLChop Growth Agent`, choose your organization, and select an appropriate region.
+3. Choose a strong database password and save it privately. The app does not need that password in its settings.
+4. Wait until the new project is ready.
+5. In the Supabase sidebar, open **SQL Editor → New query**.
+6. In VS Code, open `supabase/migrations/001_foundation.sql`. Copy the entire file into the SQL Editor and click **Run**. This creates the database tables, account access rules, and private file bucket.
+7. Open another **New query**, copy all of `supabase/migrations/002_live_workspace.sql`, and click **Run**. This enables the real lead-entry operation with validation, duplicate protection, targeting restrictions, and rate limiting.
+8. Open one more **New query**, copy all of `supabase/migrations/003_dashboard_summary.sql`, and click **Run**. This enables dashboard totals from your own saved records.
+
+Run `001_foundation.sql` only once in a **new project**. If you already installed the earlier foundation, run only the missing migrations `002_live_workspace.sql` and `003_dashboard_summary.sql`, in that order. Do not rerun the foundation against an existing database. Stop and copy the error message if a migration fails.
+
+## 3. Create your sign-in account
+
+1. In Supabase, open **Authentication → Sign In / Providers → Email**. Enable email/password sign-in.
+2. Turn **Allow new users to sign up** off. The app uses owner-created accounts rather than public registration.
+3. Open **Authentication → Users → Add user → Create new user**.
+4. Enter your own email and a strong password. Use the confirmed-email/auto-confirm option for this owner-created account. Save the password privately.
+5. Under **Authentication → URL Configuration**, set **Site URL** to:
 
    ```text
-   NEXT_PUBLIC_DEMO_MODE=true
+   http://localhost:3000
    ```
 
-3. Type `npm run dev`.
-4. Open **http://localhost:3000** in your browser. You should see “A little more momentum.” and a “Demo workspace” badge.
-5. Keep the terminal open while using the app. Press **Ctrl+C** in that terminal to stop it.
+6. Add this allowed redirect URL:
 
-## 4. Test Phase 1 in five minutes
-
-1. **Dashboard:** confirm there are 20 leads with all filters reset. Change “This month” to “Last 7 days”; totals should change. Reset it afterward.
-2. **Leads:** select Leads in the sidebar, search “Studio”, filter the country, then click a company to open its details. Use reserved `.example` emails only as sample data.
-3. **Settings → Business profile:** enter your real services and confirmed prices. The initial list is a suggestion, not a claim about your business. Click **Save changes**, refresh, and check that your edits remain.
-4. **Controls:** try the automation switch and modes. A notice explicitly says no messages are sent. These controls only simulate state in Demo Mode.
-5. **Appearance & export:** click the moon icon, shrink the browser window, and export your data from Settings. Demo preferences are stored only on this browser/device, not synced to Supabase.
-
-## 5. Create Supabase for real sign-in and storage
-
-You can do this later. Never paste secret keys into chat or browser settings.
-
-1. Visit https://supabase.com/dashboard, create an account, and choose **New project**. Pick a project name, save your database password privately, and choose an appropriate hosting region.
-2. Wait until the project is ready. Open **SQL Editor → New query**.
-3. In VS Code, open `supabase/migrations/001_foundation.sql`. Copy the entire file into the Supabase query window and click **Run**. Run it **once in a new project**, not in an existing production database. It creates 20 tables, indexes, account-level access rules, an audit log, and a private file bucket.
-4. Open **Authentication → Sign In / Providers → Email**. Enable email/password sign-in and turn **Allow new users to sign up** off. This workspace uses owner-created accounts.
-5. Open **Authentication → Users → Add user → Create new user**. Enter your email and a strong password; use the confirmed-email option for this owner-created account. Never send the password to anyone.
-6. Under **Authentication → URL Configuration**, use `http://localhost:3000` as Site URL and add `http://localhost:3000/auth/callback` to allowed redirect URLs. Password sign-in is the Phase 1 path; a code-exchange route is prepared for later magic-link flows.
-7. Open **Project Settings → API / API Keys**. Copy the **Project URL** and **publishable key** into the corresponding lines in `.env.local`.
-8. Change `NEXT_PUBLIC_DEMO_MODE=false` in `.env.local`. Stop and restart `npm run dev` after any environment-file change. For production mode, run `npm run build` again after changing any `NEXT_PUBLIC_` variable.
-9. Open http://localhost:3000. You should be redirected to sign-in. Enter the account you created. The live dashboard starts empty; settings now save to Supabase.
-10. Test privacy by creating a second user and signing in as that user in a private browser window. It must not see the first account’s leads or saved settings. Phase 1 treats each account as a separate workspace; shared team roles arrive later.
-
-### Optional: install the 20 fictional leads in Supabase
-
-1. In Supabase **Authentication → Users**, copy your owner user’s UUID into `SEED_OWNER_ID` in `.env.local`.
-2. Copy the server-only legacy `service_role` key from the project’s API settings into `SUPABASE_SERVICE_ROLE_KEY`. Do not use a publishable key here. Treat this key like a master password.
-3. In the terminal, run:
-
-   ```sh
-   node --env-file=.env.local --import tsx scripts/seed.ts
+   ```text
+   http://localhost:3000/auth/callback
    ```
 
-4. Refresh the live dashboard. Existing settings and matching lead records are preserved if the seed is run again.
-5. Remove the service-role key from your local file when you finish seeding. The Phase 1 app itself does not need it.
+Each sign-in account currently has its own separate workspace. Shared team permissions are a future feature.
 
-## 6. Accounts for later phases
+## 4. Connect your app privately
 
-| Account | Simple first step | Needed for |
-| --- | --- | --- |
-| Anthropic | https://console.anthropic.com → API Keys → Create key | Phase 3 AI writing, later classification |
-| Resend | https://resend.com/signup → Domains → add and verify a sending domain, then create an API key | Phase 3 emails |
-| Inngest | https://www.inngest.com → create account and app | Phase 3 scheduled workers |
-| Stripe or PayPal Business | https://dashboard.stripe.com/register or https://www.paypal.com/business | Phase 6 payments |
-| Vercel | https://vercel.com/signup → create an account | Phase 8 deployment |
-| Apollo, Hunter, Google Places | Optional accounts; use official APIs only | Phase 2 optional lead connectors |
+1. Open **Supabase → Project Settings → API / API Keys**.
+2. Locate your **Project URL** and **publishable key**. A legacy **anon** key can be used instead if your project uses legacy keys.
+3. In the VS Code terminal, create your local configuration file **only if it does not already exist**:
 
-No later-phase API keys are used or required now. `.env.example` explains the reserved environment variables. SMTP/IMAP alternatives and optional Telegram/WhatsApp settings are reserved, not implemented.
+   ```powershell
+   if (!(Test-Path .env.local)) { Copy-Item .env.example .env.local }
+   ```
 
-## 7. Build and check the project
+4. Open `.env.local` in VS Code and fill in these two lines with your own project values:
 
-```sh
+   ```text
+   NEXT_PUBLIC_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
+   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=YOUR-PUBLISHABLE-KEY
+   ```
+
+5. Leave `APP_URL=http://localhost:3000` while running on your computer. The app no longer uses a mode flag; older mode-variable lines can be removed from this file.
+6. Do **not** enter a database password, `service_role` key, or Supabase secret key in a `NEXT_PUBLIC_` variable. The live app does not need administrative keys. `.env.local` is ignored by Git; never upload it or paste its contents into chat.
+7. Check that the required local values are present:
+
+   ```powershell
+   npm run setup:check
+   ```
+
+   This command checks local configuration format and never prints the key. It does not test your Supabase login or database over the network.
+
+## 5. Start the real app
+
+1. Run:
+
+   ```powershell
+   npm run dev
+   ```
+
+2. Keep the terminal open. Visit **http://localhost:3000**.
+3. If configuration is missing, the app shows the setup page. Complete the steps above, stop the server with **Ctrl+C**, then run `npm run dev` again.
+4. When configured, sign in with the email and password you created in Supabase. The dashboard will initially show zero leads and zero activity.
+5. Open **Settings → Business profile**. Enter your real business address, services, pricing, turnaround, and notification email. Click **Save changes**, refresh, and confirm that the values remain saved.
+6. Open **Leads → Add lead**. Enter a real company/contact, country, source, and the reason you may lawfully store/contact that person. Save the lead and refresh to confirm it remains in your account. Open a lead to update its pipeline stage or opportunity value, save, and refresh again.
+7. India is excluded from targeting by default. A matching email in your workspace's suppression list cannot be added as a new lead. Duplicate email addresses are rejected.
+8. Check the dashboard. Counts reflect your saved records and selected reporting period; email/revenue cards remain zero until actual matching records exist. Created leads, sends, quotes, and received payments use the selected UTC reporting period. Current pipeline stages, countries, won leads, and open opportunity values use all-time saved records. Received payments are grouped by currency; no exchange-rate conversion is applied. Opportunity value is separate from received payments.
+9. Use **Settings → Export workspace** to download all your leads and saved business settings as JSON (up to 20,000 leads per download). It does not export files, payments, or other future modules. Light/dark appearance can be remembered locally; business settings are saved in Supabase.
+
+Restart the development server after editing `.env.local`. For a production build, run `npm run build` again after changing any `NEXT_PUBLIC_` variable. Deployment and a full launch review remain separate later work; this guide runs the app locally.
+
+## 6. Confirm your account is private
+
+1. Create a second test user in Supabase Authentication.
+2. Open the app in a private/incognito browser window and sign in as that user.
+3. It must not show the first user's leads or business settings. Add a record with the second user and confirm that the first account cannot see it.
+4. Remove the temporary test account from Supabase when you finish, if you no longer need it.
+
+Database row-level security enforces ownership. A working screen alone is not proof that the live Supabase setup is correct; complete this check with your own project.
+
+## 7. If you previously installed sample records
+
+This release does not insert or automatically delete records. If you used the old optional seed script, its fictional rows may still exist in your Supabase database. Review them in **Table Editor → leads**, filtering `source` to `Fictional demo data` and checking that their email addresses end in `.example`. Delete only records you have confirmed are old samples. Keep all real records. You do not need this cleanup for a newly created Supabase project.
+
+The removed browser-only settings are not migrated into your live account. Enter and save your confirmed business details after signing in.
+
+## 8. Developer checks and troubleshooting
+
+Run these checks from the project folder:
+
+```powershell
 npm test
 npm run typecheck
 npm run build
 npm run smoke
+```
+
+`npm run smoke` briefly starts a local production server and checks its unconfigured setup boundary, stylesheet, and guarded endpoints. Run it after building with no Supabase configuration in this test environment. It does not create accounts or connect to a hosted database. If you have already configured your local app, use your real-account checks in sections 5 and 6 instead.
+
+For a production-style local run:
+
+```powershell
+npm run build
 npm start
 ```
 
-`npm run smoke` briefly starts and stops a local server to check the built pages and API guards.
+Stop the development server first if port 3000 is in use.
 
-`npm start` opens the production build at http://localhost:3000. Stop any development server first if the port is already in use. Automated tests cover safe defaults, settings validation, fake-data integrity, opportunity totals, and the migration in an embedded PostgreSQL engine (PGlite), including account isolation, foreign-key ownership, immutable audit records, settings rate limiting, and automation guards. These database tests emulate the Supabase auth/storage schemas; they are not a live hosted Supabase test. Scheduling, unsubscribe, scoring, payment webhook and live Supabase integration tests are added with those implementations. The database migration must also be run and verified on your own Supabase project; do not treat a successful JavaScript build as proof of a live database setup.
+| What you see | What to do |
+| --- | --- |
+| Setup page after entering keys | Save `.env.local` in the same folder as `package.json`, check the variable names, and restart the server. |
+| Sign-in failed | Use the Supabase Authentication user and password, not the database password. Check that the user is confirmed. |
+| Database/migration message | Run the missing SQL migration once in your selected Supabase project. Confirm that the project URL and key belong to that same project. |
+| Lead already exists | Search your existing leads for the same email. Email comparisons are normalized. |
+| India targeting restriction | Check **Settings → Safety & preferences**. India is excluded by default. |
+| Suppressed address | Honor the suppression entry. Do not remove it just to add or contact that address. |
+| Rate-limit message | Wait a minute, then retry. Settings and lead creation have per-account limits. |
+| NVM blocks npm | Repair your Windows Node/NVM installation first. This is separate from the app and Supabase setup. |
 
-## 8. What is built, and what comes next
+Automated tests cover configuration-safe behavior, validation, metrics, and the SQL migrations in embedded PostgreSQL (PGlite). They emulate Supabase auth/storage schemas; they do not replace testing your hosted Supabase project. No hosted credentials are included in this repository.
 
-1. **Foundation (this release):** Next.js App Router, strict TypeScript, Tailwind v4, shadcn-style reusable button, responsive dashboard, auth, settings, safe demo, SQL schema/RLS, private storage foundation, seed and setup guide.
-2. **Leads:** CSV import, manual entry, enrichment, scoring, suppression and optional API connectors.
-3. **Outreach:** background agents, AI writing, approval queue, scheduling, limits, sending, unsubscribe and deliverability checklist.
-4. **Inbox & CRM:** reply capture/classification and pipeline editing.
-5. **Inbound:** embed form/chat and acknowledgments.
-6. **Sales & delivery:** quotes, signed payment webhooks, delivery board, client portal and files UI.
-7. **Growth loop:** after-sales workflows, analytics and weekly reports.
-8. **Go live:** beginner Vercel/Supabase deployment guide, security review and launch checklist.
+## 9. Later connections
 
-Prompts, shared team management, full audit-log browsing, active connectors, actual revenue reconciliation, and all named background workers belong to the later feature phases. Their database foundation is present, but they do not run yet. Demo settings do not migrate automatically into live mode. Live deployment is deferred to Phase 8 as requested.
+The current live foundation requires only Supabase. Keep these optional accounts for their future feature phases:
 
-## Technical notes for your developer
+| Account | Purpose when implemented |
+| --- | --- |
+| [Anthropic](https://console.anthropic.com/) | AI scoring, writing, and classification |
+| [Resend](https://resend.com/signup) or your SMTP provider | Email sending and reply capture |
+| [Inngest](https://www.inngest.com/) | Background workers and scheduled automations |
+| [Stripe](https://dashboard.stripe.com/register) or [PayPal Business](https://www.paypal.com/business) | Payments |
+| [Vercel](https://vercel.com/signup) | Hosting |
+| Apollo, Hunter, Google Places | Optional official API lead connectors |
 
-- `app/page.tsx` verifies the current Supabase user before loading live workspace records. `proxy.ts` refreshes auth cookies; it does not replace server authorization.
-- `app/api/workspace` validates settings with Zod, checks the request origin and size, and uses an authenticated RPC. Settings saves are limited to 20 per minute per account in the database, using a transaction lock, and generate immutable audit entries. No API keys are returned to the browser.
-- Every tenant-owned table has RLS, ownership indexes, and composite ownership foreign keys for related records. Users cannot edit their role; financial records and audit logs are server-write only. “Global suppression” in later phases means across all sequences in one owner workspace.
-- The private file bucket accepts objects up to 20 MB under `<owner-uuid>/...`; client portal sharing is not implemented.
-- Phase 1 settings explicitly forbid enabling live automation at both API and database levels. Phase 3 must deliberately replace this guard only after implementing sending safeguards.
-- No service-role key is used by runtime web requests. The seed script is trusted administrative code; run it only for the intended existing user.
-- The reusable button follows the shadcn/ui source-owned CVA pattern. No external UI kit server or remote fonts are required.
-- No external destinations are fetched by the application in Demo Mode.
+Adding these keys now does not enable an unimplemented feature. Every future sending workflow must retain approval, suppression, unsubscribe, business-hours, lawful-basis, audit, and rate-limit safeguards.

@@ -1,17 +1,24 @@
-# Phase 1 verification
+# Live workspace verification
 
-Completed: Next.js setup, Supabase authentication code, database migration with 20 tables and RLS, private storage foundation, responsive layout, editable settings, 20 fictional demo leads, dashboard shell, and beginner setup instructions.
+This release removes the generated lead seed and mode fallback. The app requires your own Supabase project. Missing connection values lead to setup instructions; they never produce fabricated dashboard data.
 
-Passed:
-- Next.js production build (Webpack), including strict TypeScript checks.
-- Four foundation tests: safe defaults, settings validation, fictional seed integrity, opportunity totals.
-- Embedded PostgreSQL migration test: SQL execution, owner isolation, cross-owner foreign-key protection, immutable audit, database-backed rate limit, live automation guards.
-- Local HTTP smoke checks: dashboard, fictional content, CSS, login, security header, demo API guard, callback redirect.
+Implemented scope:
+- Supabase password sign-in, owner-scoped records, and saved business settings.
+- Manual real lead entry and stage/value updates with server-side input validation and database safeguards.
+- Dashboard totals from stored records, true empty states, and leads-and-business-settings JSON export (up to 20,000 leads).
+- Local connection check and numbered Windows/Supabase setup instructions.
 
-Verification limits:
-- Browser visual and interaction testing was not available in this session.
-- Hosted Supabase Auth, database and storage have not been connected or tested. Embedded tests emulate their schemas.
-- No emails, AI calls, payments, scheduled jobs or lead imports run in Phase 1.
-- No deployment was performed; deployment remains Phase 8 in the requested plan.
+Passed for this source release:
+- Next.js production build with strict TypeScript validation.
+- Seven automated test files covering configuration, validation, real dashboard aggregation, tenant isolation, database-backed rate limits, suppression, immutable audit entries, and guarded lead updates.
+- Embedded PostgreSQL tests execute the migrations against emulated Supabase auth/storage schemas.
+- Temporary local HTTP server checks: missing configuration redirects to setup; setup instructions and stylesheet load; login remains available; readiness response contains no secrets; same-origin settings requests reach the missing-configuration guard.
+- Request-origin regression tests verify local 127.0.0.1 requests when Next internally reconstructs localhost, with cross-site requests still rejected.
+- Source diff whitespace checks and staged-file credential screening.
 
-Next: Phase 2, only after the owner says “continue”.
+Limits:
+- Hosted Supabase authentication, database, and storage cannot be verified without the owner's project. No hosted credentials are included.
+- Embedded database tests emulate Supabase auth/storage tables; they do not prove a hosted project has been migrated correctly.
+- Browser visual and interaction verification may be unavailable in the cloud session; check the live sign-in, settings save, lead save/refresh, and two-account privacy steps in README.md.
+- Email sending, AI enrichment/prospecting, CSV import, payments, background jobs, and project delivery are not implemented or activated by this change.
+- Existing database records are preserved. Any old fictional seed records require explicit review and removal by the owner.

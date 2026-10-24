@@ -8,8 +8,8 @@
     "start": "next start --hostname 0.0.0.0",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
-    "seed": "node --env-file=.env.local --import tsx scripts/seed.ts",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "setup:check": "node scripts/check-setup.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",
