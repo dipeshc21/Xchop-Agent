@@ -31,12 +31,19 @@ try{
   assert.ok(css,'Setup page must include a stylesheet.');
   assert.equal((await fetch(origin+css[1].replaceAll('&amp;','&'))).status,200);
   assert.equal((await fetch(origin+'/login')).status,200);
+  const settingsPage=await fetch(origin+'/settings',{redirect:'manual'});
+  assert.equal(settingsPage.status,307);
+  assert.ok(settingsPage.headers.get('location')?.endsWith('/setup'));
+
   const health=await fetch(origin+'/api/setup');
   assert.equal(health.status,200);
   const healthData=await health.json();
   assert.equal(healthData.configured,false);
   assert.equal(healthData.authenticated,false);
   assert.equal(healthData.database,'not-checked');
+  assert.ok(Array.isArray(healthData.checks));
+  assert.equal(healthData.checks.find(check=>check.id==='configuration')?.status,'blocked');
+  assert.equal(healthData.checks.find(check=>check.id==='dashboard')?.status,'not-checked');
   const put=await fetch(origin+'/api/workspace',{method:'PUT',headers:{'content-type':'application/json',origin},body:'{}'});
   assert.equal(put.status,503);
   console.log('PASS: missing-config redirect, setup instructions, stylesheet, login boundary, secret-free readiness response, and guarded settings endpoint.');

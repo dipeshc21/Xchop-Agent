@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
     "smoke": "node scripts/smoke.mjs",
-    "setup:check": "node scripts/check-setup.mjs"
+    "setup:check": "node scripts/check-setup.mjs",
+    "smoke:settings": "node scripts/settings-smoke.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",

@@ -1,5 +1,9 @@
 import { supabaseConfigurationStatus } from '@/lib/config';
 import { supabaseServer } from '@/lib/supabase/server';
+import {
+  classifySetupFailure, classifySetupResult, isSetupSessionFailure, setupCheck, setupTargets,
+  type DatabaseCheckId, type SetupCheck, type SetupCheckId,
+} from '@/lib/setup-diagnostics';
 
 export type SetupHealth = {
   configured: boolean;
@@ -9,9 +13,10 @@ export type SetupHealth = {
   authenticated: boolean;
   database: 'not-checked' | 'ready' | 'needs-setup';
   message: string;
+  checks: SetupCheck[];
 };
 
-/** Read-only readiness check. Keys, tokens and provider error details are never returned. */
+/** Read-only checks return allowlisted labels, status and bounded codes, never rows or provider text. */
 export async function inspectSupabaseSetup(): Promise<SetupHealth> {
   const configuration = supabaseConfigurationStatus();
   const health: SetupHealth = {
@@ -22,46 +27,60 @@ export async function inspectSupabaseSetup(): Promise<SetupHealth> {
     authenticated: false,
     database: 'not-checked',
     message: configuration.message,
+    checks: (Object.keys(setupTargets) as SetupCheckId[]).map(id => id === 'configuration'
+      ? setupCheck(id, configuration.ready ? 'ready' : 'blocked', configuration.message)
+      : setupCheck(id, 'not-checked', 'Connect Supabase and sign in before checking this item.')),
+  };
+  const replaceCheck = (check: SetupCheck) => {
+    health.checks = health.checks.map(existing => existing.id === check.id ? check : existing);
   };
   if (!configuration.ready) return health;
   try {
     const db = await supabaseServer();
     const { data: { user }, error } = await db.auth.getUser();
-    // Missing session is expected before first sign-in, not a configuration failure.
-    if (error && error.name !== 'AuthSessionMissingError') {
-      health.connection = 'unavailable';
-      health.message = 'Supabase could not verify your session. Check the project URL/key and sign in again.';
+    if (error) {
+      replaceCheck(classifySetupFailure('authentication', error));
+      health.connection = isSetupSessionFailure(error) ? 'not-checked' : 'unavailable';
+      health.message = isSetupSessionFailure(error)
+        ? 'Sign in to verify database access. The connection values are present; database checks have not run.'
+        : 'The account check could not finish. Review the result below and retry; do not reinstall the database for an unknown connection error.';
       return health;
     }
     if (!user) {
-      health.message = 'Connection values are present. Sign in with your owner account to verify database access.';
+      replaceCheck(setupCheck('authentication', 'not-checked', 'Sign in with your owner account to check database access.'));
+      health.message = 'Connection values are present. Sign in with your owner account to check database access.';
       return health;
     }
     health.connection = 'available';
     health.authenticated = true;
-    const results = await Promise.all([
-      db.from('leads').select('id').limit(1),
-      db.from('settings').select('owner_id').limit(1),
-      db.from('agent_logs').select('id').limit(1),
-      db.from('email_messages').select('id').limit(1),
-      db.from('replies').select('id').limit(1),
-      db.from('payments').select('id').limit(1),
-      db.from('projects').select('id').limit(1),
-      db.from('tasks').select('id').limit(1),
-      db.from('quotes').select('id').limit(1),
-      db.rpc('workspace_dashboard', { period: 'month' }),
-    ]);
-    if (results.some(result => result.error)) {
-      health.database = 'needs-setup';
-      health.message = 'Sign-in works, but the database tables or dashboard function are not ready. Run every SQL migration in numeric order in Supabase SQL Editor.';
-    } else {
-      health.database = 'ready';
-      health.message = 'You are signed in and the workspace database tables can be read. This check does not test sending, payments, storage uploads, or write permissions.';
-    }
+    replaceCheck(setupCheck('authentication', 'ready', 'Your account is signed in and verified. You do not need to sign in again to repair a database check.'));
+    const ids = (Object.keys(setupTargets) as SetupCheckId[])
+      .filter((id): id is DatabaseCheckId => id !== 'configuration' && id !== 'authentication');
+    const checks = await Promise.all(ids.map(async id => {
+      try {
+        const target = setupTargets[id];
+        const result = target.kind === 'rpc'
+          ? await db.rpc('workspace_dashboard', { period: 'month' })
+          : await db.from(target.table).select(target.column).limit(1);
+        return classifySetupResult(id, result);
+      } catch (error) {
+        return classifySetupFailure(id, error);
+      }
+    }));
+    for (const check of checks) replaceCheck(check);
+    const requiredBlocked = checks.some(check => setupTargets[check.id].required && check.status !== 'ready');
+    const optionalBlocked = checks.some(check => !setupTargets[check.id].required && check.status !== 'ready');
+    health.database = requiredBlocked ? 'needs-setup' : 'ready';
+    health.message = requiredBlocked
+      ? 'You are signed in. A database check is blocked; review its result below. Settings can still open if its own check is ready.'
+      : optionalBlocked
+        ? 'The main workspace reads are ready. Some supporting tables need attention; review their results below.'
+        : 'You are signed in and the workspace read checks passed. Save a setting and add a lead to verify writes separately.';
     return health;
-  } catch {
+  } catch (error) {
     health.connection = 'unavailable';
-    health.message = 'We could not reach Supabase. Check your network and project connection values, then retry.';
+    replaceCheck(classifySetupFailure('authentication', error));
+    health.message = 'The connection check could not finish. Refresh and review the result below. No database reinstall is recommended for an unknown error.';
     return health;
   }
 }

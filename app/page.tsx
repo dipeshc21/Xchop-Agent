@@ -4,12 +4,13 @@ import { supabaseServer } from '@/lib/supabase/server';
 import type { Lead } from '@/lib/models';
 import type { DashboardPeriod, DashboardSummary } from '@/lib/dashboard';
 import { defaults, settingsSchema } from '@/lib/schema';
+import { isReadableDashboardSummary } from '@/lib/setup-diagnostics';
 import Workspace from '@/components/workspace';
 
 export const dynamic = 'force-dynamic';
 const PAGE_SIZE = 50;
 
-type Query = { period?: string | string[]; q?: string | string[]; country?: string | string[]; p?: string | string[] };
+type Query = { period?: string | string[]; q?: string | string[]; country?: string | string[]; p?: string | string[]; view?: string | string[] };
 const scalar = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] ?? '' : value ?? '';
 export default async function Page({ searchParams }: { searchParams: Promise<Query> }) {
   if (!isSupabaseConfigured()) redirect('/setup');
@@ -32,7 +33,9 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
     db.from('settings').select('data').eq('owner_id', user.id).maybeSingle(),
     db.rpc('workspace_dashboard', { period }),
   ]);
-  if (leads.error || settings.error || summary.error || !summary.data) redirect('/setup?reason=database');
+  if (settings.error) redirect('/setup?reason=settings');
+  if (leads.error) redirect('/setup?reason=leads');
+  if (summary.error || !isReadableDashboardSummary(summary.data)) redirect('/setup?reason=dashboard');
   if (pageNumber > 1 && (leads.count ?? 0) <= (pageNumber - 1) * PAGE_SIZE) {
     const target = new URLSearchParams({ period, ...(search ? { q: search } : {}), ...(country ? { country } : {}) });
     redirect(`/?${target}`);
@@ -45,5 +48,6 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
     period={period} search={search} country={country}
     pageNumber={pageNumber} pageSize={PAGE_SIZE} totalLeads={leads.count ?? 0}
     userEmail={user.email ?? ''}
+    initialPage={scalar(params.view).toLowerCase() === 'leads' ? 'Leads' : scalar(params.view).toLowerCase() === 'settings' ? 'Settings' : 'Dashboard'}
   />;
 }

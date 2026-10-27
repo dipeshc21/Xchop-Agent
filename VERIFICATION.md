@@ -10,10 +10,13 @@ Implemented scope:
 
 Passed for this source release:
 - Next.js production build with strict TypeScript validation.
-- Seven automated test files covering configuration, validation, real dashboard aggregation, tenant isolation, database-backed rate limits, suppression, immutable audit entries, and guarded lead updates.
+- Nine automated test files covering configuration, validation, real dashboard aggregation, tenant isolation, database-backed rate limits, suppression, immutable audit entries, and guarded lead updates.
 - Embedded PostgreSQL tests execute the migrations against emulated Supabase auth/storage schemas.
 - Temporary local HTTP server checks: missing configuration redirects to setup; setup instructions and stylesheet load; login remains available; readiness response contains no secrets; same-origin settings requests reach the missing-configuration guard.
 - Request-origin regression tests verify local 127.0.0.1 requests when Next internally reconstructs localhost, with cross-site requests still rejected.
+- Readiness diagnostics report only fixed resource names and bounded error codes, and distinguish session, permissions, missing tables/functions, and API schema exposure.
+- Access-repair migration tests start with missing public-schema privileges, restore them idempotently, preserve data and policies, and maintain tenant isolation and write restrictions.
+- Authenticated local HTTP regression: Settings opens, saves via its guarded API, and reloads stored changes independently of missing dashboard functions, while dashboard readiness stays blocked and signed-out users cannot read settings. The HTTP test uses a test-only local Supabase substitute and SSR cookies.
 - Source diff whitespace checks and staged-file credential screening.
 
 Limits:
