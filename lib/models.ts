@@ -15,4 +15,8 @@ export type Lead = {
   updated_at: string;
   source: string;
   lawful_basis: string;
+  email_verification_status?: string;
+  email_verified_at?: string | null;
+  contact_review_status?: string;
+  discovery_run_id?: string | null;
 };

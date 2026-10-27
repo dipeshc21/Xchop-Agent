@@ -10,13 +10,16 @@
     "test": "node --import tsx --test tests/*.test.ts",
     "smoke": "node scripts/smoke.mjs",
     "setup:check": "node scripts/check-setup.mjs",
-    "smoke:settings": "node scripts/settings-smoke.mjs"
+    "smoke:settings": "node scripts/settings-smoke.mjs",
+    "dev:jobs": "npx inngest-cli@latest dev -u http://localhost:3000/api/inngest",
+    "smoke:prospecting": "node scripts/prospecting-smoke.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.80.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "inngest": "^4.26.0",
     "lucide-react": "^0.468.0",
     "next": "^16.0.0",
     "react": "^19.2.0",
