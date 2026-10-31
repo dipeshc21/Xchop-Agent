@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
-import { defaultProspectingConfig } from '../lib/prospecting/types';
+import { defaultProspectingConfig as currentConfig } from '../lib/prospecting/types';
+// Migration 005 is intentionally tested with its original configuration contract.
+const { discoveryMode: _mode, services: _services, maxAgeDays: _age, ...legacyFields } = currentConfig;
+const defaultProspectingConfig = { ...legacyFields, keywords: ['web design agency', 'branding agency'] };
 
 const owner = '50000000-0000-4000-8000-000000000001';
 const other = '50000000-0000-4000-8000-000000000002';

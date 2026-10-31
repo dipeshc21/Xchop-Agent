@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Check, Copy, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-const migrationUrl = '/migrations/005_automatic_prospecting.sql';
+const migrationUrl = '/migrations/006_project_requests.sql';
 
 export default function ProspectingSetupActions() {
   const [busy, setBusy] = useState(false);
@@ -46,7 +46,7 @@ export default function ProspectingSetupActions() {
     <div className="setup-actions">
       <Button type="button" disabled={busy} onClick={copySql}>
         {copied ? <Check size={16} /> : <Copy size={16} />}
-        {busy ? 'Opening SQL…' : copied ? 'SQL copied' : 'Copy prospecting SQL'}
+        {busy ? 'Opening SQL…' : copied ? 'SQL copied' : 'Copy project-request SQL'}
       </Button>
       <a className="button outline" href={migrationUrl} target="_blank" rel="noreferrer">
         Open SQL file <ExternalLink size={15} />
@@ -55,7 +55,7 @@ export default function ProspectingSetupActions() {
     {message && <p role="status" style={{ fontSize: 12, marginTop: 12 }}>{message}</p>}
     {manualSql && <label style={{ marginTop: 16 }}>
       Migration SQL — click inside, select all, and copy
-      <textarea aria-label="Prospecting migration SQL" readOnly rows={12} value={manualSql} onFocus={event => event.currentTarget.select()} />
+      <textarea aria-label="Project-request migration SQL" readOnly rows={12} value={manualSql} onFocus={event => event.currentTarget.select()} />
     </label>}
   </div>;
 }

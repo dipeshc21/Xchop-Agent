@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import EvidenceFields, { publicEvidenceLink } from '@/components/intent/evidence-fields';
 
 type Research = {
   summary: string | null;
@@ -10,12 +11,8 @@ type Research = {
   sources: { uri: string; lastSeenOn: string | null }[];
   aiDraft: string | null;
 };
-function publicLink(value: string) {
-  try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : null; }
-  catch { return null; }
-}
 
-export default function LeadResearch({ leadId }: { leadId: string }) {
+export default function LeadResearch({ leadId, source = '' }: { leadId: string; source?: string }) {
   const [research, setResearch] = useState<Research | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -26,25 +23,28 @@ export default function LeadResearch({ leadId }: { leadId: string }) {
       try {
         const response = await fetch(`/api/leads/${encodeURIComponent(leadId)}/research`, { signal: controller.signal, cache: 'no-store' });
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error || 'Research could not be loaded.');
+        if (!response.ok) throw new Error(result.error || 'Contact sources could not be loaded.');
         setResearch(result.research);
       } catch (failure) {
-        if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : 'Research could not be loaded.');
+        if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : 'Contact sources could not be loaded.');
       } finally { if (!controller.signal.aborted) setLoading(false); }
     }
     void load();
     return () => controller.abort();
   }, [leadId]);
-  return <section className="lead-research"><h3>Company research</h3>
-    {loading ? <p>Loading recorded research…</p> : error ? <p role="alert">{error}</p> : !research ? <p>No company research recorded.</p> : <>
-      <p>{research.summary || 'No company description provided.'}</p>
-      <dl>{[['Industry', research.industry || 'Not provided'], ['Employee count', research.employeeCount === null ? 'Not provided' : String(research.employeeCount)], ['Time zone', research.timeZone || 'Not provided']].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-      <h4>Published contact sources</h4><ul>{research.sources.map((source, index) => {
-        const url = publicLink(source.uri);
-        return url ? <li key={`${url}-${index}`}><a href={url} target="_blank" rel="noopener noreferrer">{url}</a>{source.lastSeenOn && <small>Provider last saw this source: {source.lastSeenOn}</small>}</li> : null;
-      })}</ul>
-      {research.aiDraft && <div className="info-box"><div><strong>AI research draft · review required</strong><p>{research.aiDraft}</p></div></div>}
-      <p className="discovery-help">Company facts and source links come from Hunter. Verification does not establish permission to contact this prospect.</p>
-    </>}
+  const contactSources = research?.sources.map(item => ({ ...item, url: publicEvidenceLink(item.uri) })).filter(item => item.url) ?? [];
+  // Company descriptions, role matches, verified emails and AI notes do not establish
+  // a buyer request. Legacy contacts therefore retain unknown requirement fields.
+  const origin = /^Hunter official APIs:/i.test(source) ? 'Hunter contact discovery' : source || 'Contact source not recorded';
+  return <section className="lead-research legacy-request-evidence">
+    <p className="inquiry-unconfirmed">Unconfirmed contact · no project requirement recorded</p>
+    <EvidenceFields request="No published request recorded"
+      requestHelp="Private search history is unavailable. Company information does not show what this person requested."
+      service="Unknown"
+      platform="Unknown"
+      platformHelp="A contact-source page does not establish where the person searched for development services."
+      origin={<>{origin}{loading && <small>Loading recorded contact sources…</small>}{error && <small role="alert">{error}</small>}{!loading && !error && !contactSources.length && <small>No published project-source URL is recorded.</small>}{contactSources.length > 0 && <ul className="inquiry-contact-sources">{contactSources.map((item, index) => <li key={`${item.url}-${index}`}><a href={item.url!} target="_blank" rel="noopener noreferrer">{item.url}</a><small>Published contact source; not a project request.</small></li>)}</ul>}</>}
+    />
+    {research?.summary && <details className="inquiry-trace"><summary>Recorded company description</summary><p>{research.summary}</p><p>This description is background information. It does not confirm a website or application project.</p></details>}
   </section>;
 }

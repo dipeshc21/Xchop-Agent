@@ -1,5 +1,36 @@
 @import "tailwindcss";
 
+/* Project request evidence */
+.inquiry-modal{max-width:850px!important}
+.inquiry-modal h2{padding-right:22px;overflow-wrap:anywhere}
+.intent-fields{margin:24px 0}
+.lead-modal .intent-fields .intent-field{display:grid;grid-template-columns:175px minmax(0,1fr);gap:22px;padding:20px 0;align-items:start;border-bottom:1px solid var(--line);font-size:13px}
+.intent-field dt{color:var(--muted);line-height:1.7}
+.lead-modal .intent-field dd{max-width:none;text-align:left;line-height:1.8;margin:0;overflow-wrap:anywhere}
+.intent-field small{display:block;color:var(--muted);font-size:11px;line-height:1.8;margin-top:9px}
+.intent-field a{color:var(--green);text-decoration:underline}
+.intent-field a svg{display:inline;vertical-align:middle}
+.intent-field blockquote{margin:0;padding:15px 18px;border-left:3px solid var(--green);background:var(--soft);border-radius:0 5px 5px 0;white-space:pre-wrap}
+.inquiry-trace,.legacy-contact-details{border-top:1px solid var(--line);padding-top:18px;margin-top:20px}
+.inquiry-trace summary,.legacy-contact-details summary{font-size:12px;color:var(--green);cursor:pointer;line-height:1.8}
+.inquiry-trace p{font-size:12px;line-height:1.8;margin-top:12px}
+.inquiry-query{background:var(--soft);padding:12px;border-radius:5px;overflow-wrap:anywhere}
+.inquiry-unconfirmed{padding:11px 13px;border:1px solid var(--line);background:var(--soft);border-radius:5px;color:var(--muted);font-size:12px;line-height:1.7;margin-bottom:12px}
+.inquiry-contact-sources{padding-left:17px;list-style:disc;margin-top:14px}
+.inquiry-contact-sources li{margin:10px 0}
+.inquiry-evidence-note{margin-bottom:22px}
+.inquiry-evidence-note p{font-size:12px;line-height:1.8}
+.inquiry-title{text-align:left;padding:0;display:flex;flex-direction:column;gap:6px}
+.inquiry-title strong{font-size:12px;font-weight:500;color:var(--text);white-space:normal;max-width:420px;line-height:1.7}
+.inquiry-title small{font-size:10px;line-height:1.7;color:var(--muted);white-space:normal;max-width:420px}
+.inquiry-filters{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.inquiry-filters .search-field{min-width:200px}
+.discovery-blockers{margin:18px 0}
+.discovery-blockers ul{list-style:disc;padding-left:20px;margin-top:10px;font-size:12px;line-height:1.9}
+.discovery-blockers li{margin:8px 0}
+.discovery-blockers p{font-size:11px;margin-top:12px;line-height:1.8}
+@media(max-width:700px){.lead-modal .intent-fields .intent-field{grid-template-columns:1fr;gap:8px;padding:18px 0}.inquiry-modal{padding:23px!important}.inquiry-filters{align-items:stretch;flex-direction:column}.inquiry-filters .search-field{min-width:0}.intent-field blockquote{padding:12px}.inquiry-title strong{max-width:310px}}
+
 /* Automatic prospecting */
 .discovery-status{padding:24px;display:flex;justify-content:space-between;align-items:center;gap:24px;margin:22px 0}
 .discovery-status h2{font-size:25px;margin:8px 0}

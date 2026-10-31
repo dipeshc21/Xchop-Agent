@@ -18,6 +18,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
   const { data: { user }, error: authError } = await db.auth.getUser();
   if (authError || !user) redirect('/login');
   const params = await searchParams;
+  if (scalar(params.view).toLowerCase() === 'leads') redirect('/inquiries');
   const period: DashboardPeriod = ['month', 'week', 'all'].includes(scalar(params.period))
     ? scalar(params.period) as DashboardPeriod : 'month';
   const search = scalar(params.q).trim().slice(0, 100);
@@ -48,6 +49,6 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
     period={period} search={search} country={country}
     pageNumber={pageNumber} pageSize={PAGE_SIZE} totalLeads={leads.count ?? 0}
     userEmail={user.email ?? ''}
-    initialPage={scalar(params.view).toLowerCase() === 'leads' ? 'Leads' : scalar(params.view).toLowerCase() === 'settings' ? 'Settings' : 'Dashboard'}
+    initialPage={scalar(params.view).toLowerCase() === 'contacts' ? 'Leads' : scalar(params.view).toLowerCase() === 'settings' ? 'Settings' : 'Dashboard'}
   />;
 }

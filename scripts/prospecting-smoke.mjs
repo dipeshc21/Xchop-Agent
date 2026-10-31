@@ -17,6 +17,16 @@ const { defaultProspectingConfig } = await tsImport('../lib/prospecting/types.ts
 const ownerId = '00000000-0000-4000-8000-000000000098';
 const leadId = '00000000-0000-4000-8000-000000000097';
 const runId = '00000000-0000-4000-8000-000000000096';
+const inquiryId = '00000000-0000-4000-8000-000000000094';
+const today = new Date().toISOString().slice(0, 10);
+const futureDeadline = new Date(Date.now() + 7 * 86_400_000).toISOString();
+const inquiryFixture = {
+  id: inquiryId, title: 'HTTP fixture website development request',
+  request_text: 'We are seeking an external development agency to rebuild our customer website.',
+  service: 'website', source_url: 'https://procurement.agency.com/requests/site-rebuild', platform: 'procurement.agency.com',
+  published_at: `${today}T00:00:00.000Z`, deadline_at: futureDeadline, country_code: 'US', buyer_name: 'HTTP fixture buyer',
+  discovery_query: 'APP SEARCH QUERY ONLY — not private buyer history', discovered_at: new Date().toISOString(),
+};
 const ownerEmail = 'prospecting-smoke-owner@example.test';
 const publishableKey = 'sb_publishable_prospecting_smoke_test_only';
 const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -43,14 +53,24 @@ const mock = createServer(async (request, response) => {
     reply({ code: 'bad_jwt', message: 'Test session required' }, 401); return;
   }
   if (request.method === 'GET' && url.pathname === '/auth/v1/user') { reply(user); return; }
-  const discoveryTable = ['/rest/v1/prospecting_settings', '/rest/v1/prospecting_runs'].includes(url.pathname);
+  const discoveryTable = ['/rest/v1/prospecting_settings', '/rest/v1/prospecting_runs', '/rest/v1/project_requests'].includes(url.pathname);
   if (discoveryTable || ['/rest/v1/suppression_list', '/rest/v1/leads', '/rest/v1/enrichment_data'].includes(url.pathname)) {
     if (url.searchParams.get('owner_id') !== `eq.${ownerId}`) {
       reply({ message: 'Owner filter is mandatory in this regression fixture.' }, 500); return;
     }
   }
-  if (migrationMissing && (discoveryTable || url.pathname === '/rest/v1/rpc/prospecting_usage')) {
+  if (migrationMissing && (discoveryTable || ['/rest/v1/rpc/prospecting_usage', '/rest/v1/rpc/project_discovery_readiness'].includes(url.pathname))) {
     reply({ code: discoveryTable ? 'PGRST205' : 'PGRST202', message: 'MOCK_PRIVATE_DATABASE_DETAIL_MUST_NOT_LEAK' }, 404); return;
+  }
+  if (request.method === 'POST' && url.pathname === '/rest/v1/rpc/project_discovery_readiness') {
+    reply({ schema_version: 6 }); return;
+  }
+  if (request.method === 'GET' && url.pathname === '/rest/v1/project_requests') {
+    assert.ok(url.searchParams.get('published_at')?.startsWith('gte.'), 'Only recent requests should be listed.');
+    assert.match(url.searchParams.get('or') || '', /deadline_at\.is\.null,deadline_at\.gte\./, 'Expired requests must be filtered.');
+    assert.ok(!url.searchParams.get('select')?.includes('sourceText'), 'Full source pages must not be returned.');
+    response.setHeader('Content-Range', '0-0/1');
+    reply([inquiryFixture]); return;
   }
   if (request.method === 'GET' && url.pathname === '/rest/v1/prospecting_settings') {
     reply([{ data: config, next_run_at: null }]); return;
@@ -58,10 +78,11 @@ const mock = createServer(async (request, response) => {
   if (request.method === 'GET' && url.pathname === '/rest/v1/prospecting_runs') {
     const columns = url.searchParams.get('select');
     if (!columns || columns === '*' || columns.includes('claim_token')) { reply({ message: 'Run query requested unsafe columns.' }, 500); return; }
+    assert.equal(url.searchParams.get('config_snapshot->>discoveryMode'), 'eq.project_requests', 'Legacy company runs must not appear as project requests.');
     reply([{ id: runId, owner_id: ownerId, status: 'completed', trigger_source: 'scheduled', created_at: '2026-01-01T00:00:00Z', started_at: '2026-01-01T00:01:00Z', finished_at: '2026-01-01T00:02:00Z', companies_found: 7, leads_saved: 3, skipped_count: 4, request_count: 12, error_code: null, message: 'HTTP regression completed.' }]); return;
   }
   if (request.method === 'POST' && url.pathname === '/rest/v1/rpc/prospecting_usage') {
-    reply({ requests: 12, leads_saved: 3, day_start: '2026-01-01T00:00:00Z' }); return;
+    reply({ requests: 12, leads_saved: 17, project_requests_saved: 3, day_start: '2026-01-01T00:00:00Z' }); return;
   }
   if (request.method === 'POST' && ['/rest/v1/rpc/save_prospecting_settings', '/rest/v1/rpc/suppress_workspace_email'].includes(url.pathname)) {
     try {
@@ -128,7 +149,7 @@ globalThis.fetch = function(input, init) {
   child = spawn(process.execPath, ['--import', pathToFileURL(guard).href, 'node_modules/next/dist/bin/next', 'start', '--hostname', '127.0.0.1', '--port', '3217'], {
     cwd: new URL('..', import.meta.url), stdio: ['ignore', 'pipe', 'pipe'], env: {
       ...process.env, NEXT_PUBLIC_SUPABASE_URL: mockOrigin, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: publishableKey, NEXT_PUBLIC_SUPABASE_ANON_KEY: '',
-      HUNTER_API_KEY: '', SUPABASE_SERVICE_ROLE_KEY: '', AUTOMATION_OWNER_ID: '', INNGEST_EVENT_KEY: '', INNGEST_SIGNING_KEY: '', INNGEST_DEV: '',
+      HUNTER_API_KEY: '', TAVILY_API_KEY: '', SUPABASE_SERVICE_ROLE_KEY: '', AUTOMATION_OWNER_ID: '', INNGEST_EVENT_KEY: '', INNGEST_SIGNING_KEY: '', INNGEST_DEV: '',
       ANTHROPIC_API_KEY: '', ANTHROPIC_MODEL: '', APP_URL: origin, NEXT_TELEMETRY_DISABLED: '1',
     },
   });
@@ -148,14 +169,14 @@ globalThis.fetch = function(input, init) {
   const guide = await fetch(`${origin}/prospecting/setup`);
   assert.equal(guide.status, 200);
   const guideHtml = await guide.text();
-  assert.match(guideHtml, /Hunter/); assert.match(guideHtml, /Inngest/);
-  const sql = await fetch(`${origin}/migrations/005_automatic_prospecting.sql`);
+  assert.match(guideHtml, /Tavily/); assert.match(guideHtml, /Inngest/);
+  const sql = await fetch(`${origin}/migrations/006_project_requests.sql`);
   assert.equal(sql.status, 200);
-  assert.equal(await sql.text(), await readFile(new URL('../supabase/migrations/005_automatic_prospecting.sql', import.meta.url), 'utf8'), 'Public copy SQL must match the reviewed migration exactly.');
+  assert.ok((await sql.text()) === (await readFile(new URL('../supabase/migrations/006_project_requests.sql', import.meta.url), 'utf8')), 'Public copy SQL must match the reviewed migration exactly.');
   const signedOut = await fetch(`${origin}/prospecting`, { redirect: 'manual' });
   assert.equal(signedOut.status, 307);
   assert.equal(new URL(signedOut.headers.get('location'), origin).pathname, '/login');
-  for (const path of ['/api/prospecting', '/api/suppression']) assert.equal((await fetch(`${origin}${path}`)).status, 401);
+  for (const path of ['/api/prospecting', '/api/suppression', '/api/inquiries']) assert.equal((await fetch(`${origin}${path}`)).status, 401);
   assert.ok(!requests.slice(publicStart).some(item => item.path.startsWith('/rest/v1/')), 'Anonymous requests must not read owner data.');
 
   const page = await fetch(`${origin}/prospecting`, { headers, redirect: 'manual' });
@@ -168,6 +189,21 @@ globalThis.fetch = function(input, init) {
   assert.deepEqual(status.usage, { requestsToday: 12, leadsToday: 3, dayStart: '2026-01-01T00:00:00Z' });
   assert.equal(status.runs[0].leads_saved, 3); assert.equal(status.runs[0].id, runId);
   assert.ok(!JSON.stringify(status).includes(accessToken)); assert.ok(!JSON.stringify(status).includes('claim_token'));
+  const inquiriesPage = await fetch(`${origin}/inquiries`, { headers, redirect: 'manual' });
+  assert.equal(inquiriesPage.status, 200);
+  assert.match(await inquiriesPage.text(), /See the request behind the lead/);
+  const inquiryResponse = await fetch(`${origin}/api/inquiries`, { headers });
+  assert.equal(inquiryResponse.status, 200);
+  const inquiries = await inquiryResponse.json();
+  assert.equal(inquiries.migrationReady, true);
+  assert.equal(inquiries.pagination.total, 1);
+  assert.equal(inquiries.inquiries[0].request_text, inquiryFixture.request_text);
+  assert.equal(inquiries.inquiries[0].service, 'website');
+  assert.equal(inquiries.inquiries[0].discovery_query, inquiryFixture.discovery_query);
+  assert.ok(!JSON.stringify(inquiries).includes('rawContent'));
+  const legacyView = await fetch(`${origin}/?view=leads`, { headers, redirect: 'manual' });
+  assert.equal(legacyView.status, 307);
+  assert.equal(new URL(legacyView.headers.get('location'), origin).pathname, '/inquiries');
 
   migrationMissing = true;
   const missingResponse = await fetch(`${origin}/api/prospecting`, { headers });
@@ -176,6 +212,9 @@ globalThis.fetch = function(input, init) {
   assert.equal(missing.migrationReady, false); assert.equal(missing.enabled, false); assert.equal(missing.readiness.ready, false);
   assert.deepEqual(missing.runs, []); assert.equal(missing.config.enabled, false);
   assert.ok(!JSON.stringify(missing).includes('MOCK_PRIVATE_DATABASE_DETAIL_MUST_NOT_LEAK'));
+  const missingInquiries = await (await fetch(`${origin}/api/inquiries`, { headers })).json();
+  assert.equal(missingInquiries.migrationReady, false);
+  assert.deepEqual(missingInquiries.inquiries, []);
   migrationMissing = false;
 
   const pausedConfig = { ...config, enabled: false, intervalHours: 48, keywords: ['Design studio regression filter'] };
@@ -214,7 +253,7 @@ globalThis.fetch = function(input, init) {
     assert.equal((await fetch(`${origin}/api/inngest`, { method })).status, 503, 'Unsigned, unconfigured background endpoint must fail closed.');
   }
   assert.equal(await readFile(blockedLog, 'utf8'), '', 'No tested route may attempt an external provider fetch.');
-  console.log('PASS: real authenticated discovery routes read owner status and usage; public guide SQL matches; missing migration stays paused; pause saves without keys while enabling and queueing are blocked; suppression auth/origin guards work; lead research excludes private fields; unsigned background routes fail closed; no external provider fetches.');
+  console.log('PASS: authenticated project requests use owner, age and deadline filters; legacy lead links open request list; request-only counts exclude legacy contacts; migration 006 copy matches; missing schema stays paused; keyless pause and blocked enabling/queueing; research and suppression guards; unsigned jobs fail closed; no external provider calls.');
 } finally {
   if (child && !childExited) { const exit = once(child, 'exit'); child.kill('SIGTERM'); await exit; }
   if (mock.listening) { const closed = once(mock, 'close'); mock.close(); mock.closeAllConnections(); await closed; }

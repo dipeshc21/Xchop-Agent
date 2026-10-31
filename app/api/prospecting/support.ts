@@ -3,7 +3,7 @@ import { isSupabaseConfigured } from '@/lib/config';
 import { hasSameOrigin } from '@/lib/request';
 import { supabaseServer } from '@/lib/supabase/server';
 
-export const migrationMessage = 'Run migration 005_automatic_prospecting.sql using the Lead discovery setup guide, then refresh this page.';
+export const migrationMessage = 'Run migration 006_project_requests.sql after migrations 001–005 using the Lead discovery setup guide, then refresh this page.';
 export const runColumns = 'id,owner_id,status,trigger_source,created_at,started_at,finished_at,companies_found,leads_saved,skipped_count,request_count,error_code,message';
 type DatabaseError = { code?: string; message?: string } | null;
 

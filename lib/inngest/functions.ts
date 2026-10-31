@@ -1,7 +1,7 @@
 import { inngest, dispatchProspectingRun, prospectingEventName, prospectingRequestSchema } from '@/lib/inngest/client';
 import { getProspectingReadiness } from '@/lib/prospecting/server-config';
 import { queueDueProspectingRun } from '@/lib/prospecting/repository';
-import { runProspecting } from '@/lib/prospecting/runner';
+import { runProjectDiscovery } from '@/lib/intent/runner';
 
 export const prospectorSchedule = inngest.createFunction({
   id: 'prospector-agent-schedule',
@@ -23,7 +23,7 @@ export const prospectorSchedule = inngest.createFunction({
 
 export const prospectorAgent = inngest.createFunction({
   id: 'prospector-agent',
-  name: 'ProspectorAgent · discover and qualify',
+  name: 'ProspectorAgent · find evidenced project requests',
   triggers: { event: prospectingEventName },
   concurrency: { limit: 1, key: 'event.data.ownerId' },
   retries: 3,
@@ -33,8 +33,8 @@ export const prospectorAgent = inngest.createFunction({
     logger.warn('ProspectorAgent rejected an invalid event or an unconfigured owner.');
     return { status: 'disabled', message: 'No discovery providers were called.' };
   }
-  logger.info('ProspectorAgent and QualifierAgent accepted a configured discovery run.');
-  const result = await runProspecting({
+  logger.info('ProspectorAgent accepted a configured public project-request run.');
+  const result = await runProjectDiscovery({
     ownerId: payload.data.ownerId,
     runId: payload.data.runId,
     // One claim token survives this execution's retries. Hourly recovery is a new

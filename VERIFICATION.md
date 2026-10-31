@@ -1,29 +1,27 @@
-# Live workspace and discovery verification
+# Project-request discovery verification
 
-The app uses the owner's Supabase project and official provider APIs. Missing configuration opens setup instructions. The production app has no sample-lead fallback, test provider mode, or invented contact addresses.
+The app now qualifies published buyer requests for website/application work. It does not qualify a company solely because its profile matches an agency segment or its email verifies successfully. Existing contacts are retained separately as unconfirmed contacts.
 
-## Implemented scope
+## Scope
 
-- Supabase password sign-in, owner-scoped leads, business settings, guarded stage/value changes, dashboard aggregation, and actual-record JSON export.
-- Hunter-based company discovery, independent country enrichment, published business-contact search, email verification, deterministic fit scoring, and saved prospects marked for contact review.
-- Persistent run history and request reservations, owner binding, configurable targeting, request/lead limits, pause controls, suppression, and Inngest scheduling.
-- Optional CSV import for existing contacts, with file validation before saving and row-specific results; imported contacts are not automatically verified.
-- Optional Anthropic research summaries stored as drafts. A separate explicit model setting is required; AI cannot approve contact or send messages.
-- Public numbered discovery setup instructions, private server configuration examples, hosted Vercel/Inngest instructions, and a Copy SQL action with a plain-file/manual-copy fallback.
+- Tavily searches public pages using a private server key; provider results are treated as untrusted source data.
+- Qualification requires a literal external-development request, an explicitly stated publication date, supported service, and selected-country evidence in the source text. Search-engine estimated dates and country boosts do not establish those facts.
+- Public request text, required service, source platform, original URL, source dates, and the app's own separate discovery query are stored with the request.
+- The popup does not claim access to private search history or browsing activity. Existing company contacts show unknown/unrecorded project requirements.
+- Requests can be saved without email addresses; none are invented. Review the source platform's posting before responding.
+- The durable worker uses owner binding, pause/version/lease checks, database-backed request reservations, daily limits, and duplicate source checks. It does not send messages or submit proposals.
+- Migration 006 preserves earlier contacts, pauses old company-discovery configuration, and adds separate owner-scoped project-request records. The downloadable SQL must match its reviewed migration exactly.
 
-## Verification evidence
+## Test evidence
 
-The following checks passed in the cloud workspace during this release:
+The complete project-request release passed these checks in the cloud workspace:
 
-- `npm test` — all 16 test files, including embedded PostgreSQL migrations 001–005, tenant isolation, role grants, request/lead limits, pause/version guards, suppression, provider response validation, scoring, CSV import, and SQL-copy equality.
+- `npm test` — all 21 test files, including real embedded PostgreSQL execution through migration 006, request/source binding, tenant isolation, caps, pause/retry handling, source qualification, popup evidence, and byte-for-byte SQL downloads.
 - `npm run typecheck` and `npm run build` — TypeScript and the Next.js production build.
-- `npm run smoke` — unconfigured setup, stylesheet, sign-in boundary, and guarded saves.
-- `npm run smoke:settings` — authenticated Settings access/save/reload while the dashboard function is unavailable, with a local test-only Supabase substitute.
-- `npm run smoke:prospecting` — actual production HTTP routes for owner-scoped status/usage, public setup and exact SQL copy, missing migration, pause without provider keys, blocked enabling/queueing, suppression, research projection, and unsigned background-handler rejection. External provider fetches are blocked and asserted absent.
+- `npm run smoke` and `npm run smoke:settings` — setup/authentication boundaries and authenticated settings access/save/reload even when dashboard setup is incomplete.
+- `npm run smoke:prospecting` — actual production HTTP routes with localhost fixtures: recent/unexpired owner requests, old lead links opening the new request list, request-only counters, exact migration 006 download, missing-schema handling, keyless pause, guarded enabling/queueing, safe research projection, suppression, and unsigned-job rejection. External provider requests are blocked and asserted absent.
 
-Provider/runner tests inject documented response fixtures. Database tests execute embedded PostgreSQL (PGlite) with emulated Supabase auth/storage schemas and distinct roles. HTTP smoke checks use temporary localhost servers and fixture sessions. These checks do not validate the owner's hosted accounts, provider entitlement, or scheduled execution and do not make paid provider requests.
-
-Run release checks from the project folder after changes:
+Run release checks after changes:
 
 ```powershell
 npm test
@@ -34,23 +32,25 @@ npm run smoke:settings
 npm run smoke:prospecting
 ```
 
-Smoke commands require an isolated production build made without configured Supabase values. For a configured owner installation, use the real-account acceptance steps below instead.
+Provider/worker tests inject fixtures. Database tests execute embedded PostgreSQL (PGlite) with emulated Supabase auth/storage schemas and separate roles. HTTP smoke checks use temporary localhost servers and fixture sessions. These checks do not validate the owner's live Tavily account, hosted Supabase project, billing, or computer-off scheduling.
 
 ## Owner's live acceptance check
 
-1. Apply the missing database migrations in order, configure the actual owner and server credentials, and sync the hosted app endpoint in Inngest. Follow [README.md](README.md), section 6, or open `/prospecting/setup`.
-2. Sign in as the configured owner, save targeting and conservative limits, start discovery, and queue one run. This uses real provider credits.
-3. Inspect the Inngest function execution and the app's Run history. Confirm a run progresses from queued to a finished status. A queued run alone does not prove that a worker ran.
-4. Inspect any saved lead's company country, published source, actual email-verification date, fit reason, and contact-review status. A run can correctly save zero leads when no result qualifies.
-5. Refresh the app to confirm persistence. Test Pause discovery and check that future work stops before its next request or save. A request already in flight can finish.
-6. Check isolation using a second Supabase user in a private browser window. It must not read the owner's leads, settings, or run history and cannot operate the configured paid worker.
-7. Leave the local app closed and confirm the hosted Inngest hourly tick dispatches the next due run. Local development servers do not prove computer-off scheduling.
+1. Update the code, run only missing migrations in order through 006, and add the actual `TAVILY_API_KEY` to the server. Keep the existing Supabase owner/admin and Inngest settings. Follow [README.md](README.md) or `/prospecting/setup`.
+2. Confirm old contacts remain unconfirmed and the new project-request list does not invent requirements for them. Review the new targeting and conservative limits, save, and enable discovery.
+3. Queue one run. Inspect the Inngest execution and app run history until it finishes. A queued row alone is not proof that provider work happened. The search can consume credits even if zero pages qualify.
+4. For any saved result, open the original URL and verify the literal request, matching service, publication evidence, selected country, and deadline. Verify that the popup does not confuse the app's search query with the buyer's private search history.
+5. Check that a supplier page, job advertisement, undated request, closed/expired project, and missing-country result do not appear as qualified requests. A run saving zero requests can be correct.
+6. Refresh to confirm persistence. Pause discovery and confirm future requests and saves stop; an already-started provider request can complete.
+7. Sign in as a separate test account in an incognito window. It must not read another owner's requests, contacts, settings, or run history, and cannot spend the configured owner's provider credits.
+8. Close local services and confirm the hosted hourly Inngest tick queues the next due run. Local testing is not proof of unattended hosting.
 
 ## Limits
 
-- No owner Supabase, Hunter, Inngest, Vercel, or Anthropic credentials are included in source. Hosted sign-in, migrations, provider access, charges, and unattended execution require the owner's real-account checks above. A passing fixture-based test is not a live provider verification.
-- A syntactically configured key does not prove account access, endpoint entitlement, available credits, or correct project matching. Readiness labels describe configuration; actual failures appear in run history.
-- Hunter can return cached verification dates. The app records the actual returned date and accepts eligible valid results no older than 31 days. Verification does not establish consent or guarantee delivery.
-- API-request limits count requests, not Hunter billing credits. Basic Discover search has bounded coverage; Premium pagination requires suitable account access. No minimum number of leads is promised.
-- Email sending, reply handling, payments, and project delivery remain later phases. Discovery never starts email follow-ups automatically.
-- Existing database records are preserved. Review and remove any old fictional seed records explicitly; this update does not delete them.
+- No live provider credentials are included in the repository or used by fixture tests. Actual account access, charges, migrations, and scheduling need the owner's live acceptance check.
+- Search coverage is bounded. Missing raw page text, explicit publication evidence, or country evidence can cause legitimate-looking pages to be rejected. No minimum result count, buyer response, or contract is promised.
+- A public posting can become filled or withdrawn after publication. A stored request is evidence of a published request, not a guarantee of its present availability or permission for unrelated marketing.
+- Configuration checks validate presence/format, not actual remote permissions, account credits, project matching, or deployment connectivity.
+- Request caps count API calls rather than money. Check the provider's account usage and current credit rules.
+- Hunter contact verification and AI summaries do not establish buyer intent and are not required by the new worker.
+- Email outreach, replies, payments, and delivery remain later phases. Existing records are preserved; this update does not delete them automatically.

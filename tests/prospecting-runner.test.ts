@@ -276,19 +276,22 @@ test('verification date bounds and domain normalization reject ambiguous or loca
   for (const value of ['localhost', '127.0.0.1', 'https://name:password@agency.com', 'https://agency.com:8888', 'fake.invalid']) assert.equal(normalizeProspectDomain(value), null);
 });
 
-test('server credentials and optional AI readiness are fail-closed without exposing secret values', () => {
-  const names = ['NODE_ENV', 'NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'HUNTER_API_KEY', 'INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY', 'INNGEST_DEV', 'ANTHROPIC_API_KEY', 'ANTHROPIC_MODEL'];
+test('server credentials and project search readiness are fail-closed without exposing secrets', () => {
+  const names = ['NODE_ENV', 'NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'HUNTER_API_KEY', 'TAVILY_API_KEY', 'INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY', 'INNGEST_DEV', 'ANTHROPIC_API_KEY', 'ANTHROPIC_MODEL'];
   const old = Object.fromEntries(names.map(name => [name, process.env[name]]));
   try {
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://real-project.supabase.co'; process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_public-value';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'sb_publishable_public-value'; assert.equal(serviceRoleConfiguration().ready, false);
-    process.env.SUPABASE_SERVICE_ROLE_KEY = 'sb_secret_' + 'x'.repeat(40); process.env.HUNTER_API_KEY = 'a'.repeat(40);
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'sb_secret_' + 'x'.repeat(40); process.env.HUNTER_API_KEY = 'a'.repeat(40); process.env.TAVILY_API_KEY = 'tvly-' + 'x'.repeat(40);
     process.env.INNGEST_EVENT_KEY = 'event-' + 'x'.repeat(40); process.env.INNGEST_SIGNING_KEY = 'signkey-' + 'x'.repeat(40);
     delete process.env.INNGEST_DEV; Object.assign(process.env, { NODE_ENV: 'production' });
     const config = { ...defaultProspectingConfig, lawfulBasis: 'Relevant business partnership research.' };
     assert.equal(getProspectingReadiness(ownerId, config).ready, true);
     delete process.env.ANTHROPIC_API_KEY; delete process.env.ANTHROPIC_MODEL;
-    assert.equal(getProspectingReadiness(ownerId, { ...config, aiEnabled: true }).ready, false);
+    assert.equal(getProspectingReadiness(ownerId, { ...config, aiEnabled: true }).ready, true, 'Legacy AI settings cannot block evidence-based project search.');
+    delete process.env.TAVILY_API_KEY;
+    assert.equal(getProspectingReadiness(ownerId, config).ready, false, 'A Hunter key does not supply project-request search.');
+    process.env.TAVILY_API_KEY = 'tvly-' + 'x'.repeat(40);
     process.env.INNGEST_DEV = '1'; assert.equal(getProspectingReadiness(ownerId, config).ready, false);
     assert.doesNotMatch(JSON.stringify(getProspectingReadiness(ownerId, config)), /sb_secret_|signkey-|event-xxx/);
   } finally { for (const name of names) { if (old[name] === undefined) delete process.env[name]; else process.env[name] = old[name]; } }
