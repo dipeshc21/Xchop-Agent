@@ -8,6 +8,10 @@ The request popup shows the public request, required service, publication platfo
 
 Existing Hunter contacts are preserved as **Unconfirmed contacts**. A previous fit score does not establish an active project. New project requests are stored separately and can be useful without an email address: respond through the original posting after reviewing it. This phase does not send email or submit proposals automatically.
 
+Contact names, emails, roles, and websites remain visible above the four requirement/source fields. Those fields are additional information; they do not replace contact details. A published project email is attributed to its source and is not labelled as delivery-verified unless a separate verification exists.
+
+If migration 006 is already installed, the contact layout correction needs only the latest app deployment. To collect and store contact names/emails published in new project posts, open `/prospecting/setup`, click **Copy contact-update SQL**, and run migration `007_project_contacts.sql` once in Supabase SQL Editor. Do not rerun migration 006. Existing contacts and requests are preserved. The new discovery worker remains compatible with migration 006 while the optional contact update is pending.
+
 ## Upgrade your existing installation
 
 Use this path if your app already signs in and you have saved contacts.
@@ -60,6 +64,7 @@ Skip project creation if you already have the app's Supabase project.
    | `004_restore_workspace_access.sql` | Explicit API access grants and schema-cache refresh |
    | `005_automatic_prospecting.sql` | Durable runs, request budgets, and suppression foundation |
    | `006_project_requests.sql` | Public buyer-request discovery, evidence rules, and separate request records |
+   | `007_project_contacts.sql` | Optional source-backed project contact names and email addresses |
 
 5. The in-app guide at `/prospecting/setup` provides **Copy project-request SQL** for migration 006. Earlier migration files are in `supabase/migrations`; the guide also links to the downloadable 005 prerequisite.
 

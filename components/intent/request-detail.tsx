@@ -2,10 +2,44 @@
 
 import { useEffect, useRef } from 'react';
 import { ExternalLink, X } from 'lucide-react';
+import { z } from 'zod';
 import type { ProjectInquiry } from '@/lib/intent/types';
 import EvidenceFields, { evidenceDate, publicEvidenceLink, requiredServiceName, sourcePlatform } from './evidence-fields';
 
-export type InquiryRecord = Omit<ProjectInquiry, 'owner_id' | 'run_id' | 'evidence'>;
+export type InquiryRecord = Omit<ProjectInquiry, 'owner_id' | 'run_id' | 'evidence'> & {
+  contact_name?: string | null;
+  contact_email?: string | null;
+  contact_source_url?: string | null;
+};
+
+type ContactDetailsProps = {
+  name?: string | null;
+  email?: string | null;
+  role?: string | null;
+  website?: string | null;
+  sourceUrl?: string | null;
+  emailNote?: string;
+  responseUrl?: string | null;
+};
+
+/** Contact identity stays visible alongside the request evidence. Missing values
+ * never become guessed email addresses or inferred decision makers. */
+export function ContactDetails({ name, email, role, website, sourceUrl, emailNote, responseUrl }: ContactDetailsProps) {
+  const address = email?.trim() ?? '';
+  const validEmail = z.email().max(254).safeParse(address).success;
+  const site = website ? publicEvidenceLink(website) : null;
+  const source = sourceUrl ? publicEvidenceLink(sourceUrl) : null;
+  const response = responseUrl ? publicEvidenceLink(responseUrl) : null;
+  return <section className="contact-summary" aria-label="Contact details">
+    <h3>Contact details</h3><dl>
+      <div><dt>Contact name</dt><dd>{name?.trim() || 'Not published'}</dd></div>
+      <div><dt>Email</dt><dd>{validEmail ? <><a href={`mailto:${encodeURIComponent(address)}`}>{address}</a>{emailNote && <small>{emailNote}</small>}</> : <>Not published{response && <small><a href={response} target="_blank" rel="noopener noreferrer">Use the original platform to respond <ExternalLink size={12} /></a></small>}</>}</dd></div>
+      {role && <div><dt>Role</dt><dd>{role}</dd></div>}
+      {site && <div><dt>Website</dt><dd><a href={site} target="_blank" rel="noopener noreferrer">{site} <ExternalLink size={12} /></a></dd></div>}
+      {source && <div><dt>Contact source</dt><dd><a href={source} target="_blank" rel="noopener noreferrer">{source} <ExternalLink size={12} /></a></dd></div>}
+    </dl>
+  </section>;
+}
 
 export default function RequestDetail({ inquiry, onClose }: { inquiry: InquiryRecord; onClose: () => void }) {
   const ref = useRef<HTMLElement>(null);
@@ -36,6 +70,8 @@ export default function RequestDetail({ inquiry, onClose }: { inquiry: InquiryRe
       <button className="modal-close icon-button" aria-label="Close project request" onClick={onClose}><X size={20} /></button>
       <div className="eyebrow">PUBLISHED PROJECT REQUEST</div><h2 id="project-request-title">{inquiry.title}</h2>
       <p className="modal-description">{expired ? 'Recorded request · its deadline has passed' : 'Published request · review availability'}{inquiry.buyer_name ? ` · ${inquiry.buyer_name}` : ''}</p>
+      <ContactDetails name={inquiry.contact_name} email={inquiry.contact_email} sourceUrl={inquiry.contact_source_url}
+        emailNote="Published contact; email deliverability has not been verified." responseUrl={url} />
       <EvidenceFields request={<blockquote>{inquiry.request_text}</blockquote>}
         requestHelp="Exact wording from the public request. Private search history is unavailable."
         service={requiredServiceName(inquiry.service)}

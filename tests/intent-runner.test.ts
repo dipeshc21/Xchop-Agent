@@ -111,6 +111,45 @@ test('project workflow saves a cited development request without inventing conta
   assert.equal('searchHistory' in state.persisted[0].evidence, false);
 });
 
+test('project discovery preserves source-published contact identity alongside requirement evidence', async () => {
+  const { state, repository, dependencies } = fixture();
+  repository.supportsContacts = async () => true;
+  state.results[0].rawContent += '\nProject contact: Nora Buyer\nEmail: nora@buyerboard.org';
+  const result = await runProjectDiscovery(input, step, dependencies);
+  assert.equal(result.leadsSaved, 1);
+  assert.deepEqual(state.persisted[0].contact, {
+    contactName: 'Nora Buyer', contactEmail: 'nora@buyerboard.org', contactSourceUrl: state.results[0].url,
+  });
+  assert.ok(state.persisted[0].evidence.requestText);
+});
+
+test('migration 006 discovery remains compatible while optional contact storage is unavailable', async () => {
+  const { state, repository, dependencies } = fixture();
+  repository.supportsContacts = async () => false;
+  state.results[0].rawContent += '\nProject contact: Nora Buyer\nEmail: nora@buyerboard.org';
+  const result = await runProjectDiscovery(input, step, dependencies);
+  assert.equal(result.leadsSaved, 1);
+  assert.equal('contact' in state.persisted[0], false);
+});
+
+test('an unsupported contact never causes the useful project requirement to be lost', async () => {
+  const { state, repository, dependencies } = fixture();
+  repository.supportsContacts = async () => true;
+  state.results[0].rawContent += '\nProject contact: Nora Buyer\nEmail: nora@buyerboard.org';
+  const originalPersist = repository.persist;
+  let attempts = 0;
+  repository.persist = async (...args) => {
+    attempts++;
+    return args[3].contact ? { status: 'contact_evidence_required' } : originalPersist(...args);
+  };
+  const result = await runProjectDiscovery(input, step, dependencies);
+  assert.equal(result.leadsSaved, 1);
+  assert.equal(attempts, 2);
+  assert.equal('contact' in state.persisted[0], false);
+  assert.match(result.message, /contact evidence was incomplete/);
+  assert.equal(state.calls.filter(value => value === 'search').length, 1, 'Contact handling must not repeat paid searches.');
+});
+
 test('an enabled legacy company-discovery config cannot make a new provider request', async () => {
   const { state, dependencies } = fixture();
   delete (state.config as Partial<typeof state.config>).discoveryMode;

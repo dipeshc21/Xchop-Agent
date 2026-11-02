@@ -8,6 +8,7 @@ import { supabaseServer } from '@/lib/supabase/server';
 export const dynamic = 'force-dynamic';
 const PAGE_SIZE = 50;
 const inquiryColumns = 'id,title,request_text,service,source_url,platform,published_at,deadline_at,country_code,buyer_name,discovery_query,discovered_at';
+const contactColumns = `${inquiryColumns},contact_name,contact_email,contact_source_url`;
 const timestamp = z.string().max(50).refine(value => Number.isFinite(Date.parse(value)));
 const publicSource = z.string().max(2000).refine(value => {
   try {
@@ -24,6 +25,9 @@ const inquirySchema = z.object({
   service: requestedServiceSchema, source_url: publicSource, platform: z.string().min(1).max(253),
   published_at: timestamp, deadline_at: timestamp.nullable(), country_code: z.string().length(2),
   buyer_name: z.string().max(300).nullable(), discovery_query: z.string().max(500), discovered_at: timestamp,
+  contact_name: z.string().max(200).nullable().optional(),
+  contact_email: z.email().max(254).nullable().optional(),
+  contact_source_url: publicSource.nullable().optional(),
 }).strip();
 
 export async function GET(request: NextRequest) {
@@ -40,6 +44,7 @@ export async function GET(request: NextRequest) {
     const db = await supabaseServer();
     const { data: { user }, error: authError } = await db.auth.getUser();
     if (authError || !user) return NextResponse.json({ error: 'Sign in to view your project requests.' }, { status: 401 });
+    const ownerId = user.id;
     const settings = await db.from('prospecting_settings').select('data').eq('owner_id', user.id).maybeSingle();
     if (settings.error) {
       if (['PGRST205', '42P01'].includes(settings.error.code ?? '')) {
@@ -55,7 +60,8 @@ export async function GET(request: NextRequest) {
     }
     const now = new Date();
     const cutoff = new Date(now.getTime() - maxAgeDays * 86_400_000).toISOString();
-    let query = db.from('project_requests').select(inquiryColumns, { count: 'exact' }).eq('owner_id', user.id)
+    function requestQuery(columns: string) {
+    let query = db.from('project_requests').select(columns, { count: 'exact' }).eq('owner_id', ownerId)
       .gte('published_at', cutoff).or(`deadline_at.is.null,deadline_at.gte.${now.toISOString()}`)
       .order('discovered_at', { ascending: false }).order('id', { ascending: false })
       .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
@@ -63,7 +69,17 @@ export async function GET(request: NextRequest) {
     if (country) query = query.eq('country_code', country);
     if (service) query = service === 'website_and_application'
       ? query.eq('service', service) : query.in('service', [service, 'website_and_application']);
-    const { data, error, count } = await query;
+    return query;
+    }
+    let result = await requestQuery(contactColumns);
+    let contactStorageReady = true;
+    if (result.error && ['42703', 'PGRST204'].includes(result.error.code ?? '') && /contact_(?:name|email|source_url)/i.test(result.error.message ?? '')) {
+      // Migration 007 is additive: keep existing request lists usable before it
+      // is installed, without hiding contact columns once they are available.
+      contactStorageReady = false;
+      result = await requestQuery(inquiryColumns);
+    }
+    const { data, error, count } = result;
     if (error) {
       if (['PGRST205', '42P01'].includes(error.code ?? '')) {
         return NextResponse.json({ migrationReady: false, inquiries: [], pagination: null,
@@ -76,7 +92,7 @@ export async function GET(request: NextRequest) {
     if (!parsed.success || !Number.isSafeInteger(count) || count === null || count < 0) {
       return NextResponse.json({ error: 'Project request evidence could not be read. Check migration 006 and your stored records.' }, { status: 503 });
     }
-    return NextResponse.json({ migrationReady: true, inquiries: parsed.data,
+    return NextResponse.json({ migrationReady: true, contactStorageReady, inquiries: parsed.data,
       pagination: { page, pageSize: PAGE_SIZE, total: count }, maxAgeDays },
     { headers: { 'Cache-Control': 'private, no-store' } });
   } catch {

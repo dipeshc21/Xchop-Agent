@@ -13,6 +13,13 @@ export default async function ProspectingSetupPage() {
     <Link href="/prospecting" style={{ display: 'inline-flex', gap: 7, alignItems: 'center', fontSize: 12 }}><ArrowLeft size={15} /> Back to discovery</Link>
     <div className="eyebrow" style={{ marginTop: 30 }}>PUBLIC PROJECT REQUESTS · SETUP</div>
     <h1>Find published website and application requests.</h1>
+    <section className="panel">
+      <h2>Already using project requests? Add published contact details</h2>
+      <p>Contact names, emails, roles, and websites remain visible above the source fields. Existing contacts are preserved. The layout correction needs no database change.</p>
+      <p>To save published contact names and emails from newly discovered project posts, run the additive contact update once after migration 006. In Supabase open <b>SQL Editor → New query</b>, paste the SQL below, and click <b>Run</b>. Do not rerun migration 006 if it already succeeded.</p>
+      <ProspectingSetupActions migration="007_project_contacts.sql" />
+      <p>This update saves only contacts published for the project, with the same source link. It does not guess addresses or claim email deliverability. Requests without published contacts keep their original platform response link.</p>
+    </section>
     <p>Connect Tavily to search public project requests. The app saves a result only when its source text contains an explicit buyer request, a dated publication, and evidence of a selected country. A company profile or an email address alone does not qualify.</p>
     <div className="info-box"><ShieldCheck size={20} /><p>The app cannot see anyone&apos;s private Google searches or browsing history. Its popup shows the publicly posted request and where it appeared. Review the original posting and its response rules before replying.</p></div>
     <section className="panel">

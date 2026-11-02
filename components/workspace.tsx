@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import CsvImport from '@/components/prospecting/csv-import';
 import LeadResearch from '@/components/prospecting/lead-research';
+import { ContactDetails } from '@/components/intent/request-detail';
 import type { Lead } from '@/lib/models';
 import type { DashboardPeriod, DashboardSummary } from '@/lib/dashboard';
 import { type Settings, settingsSchema, stages } from '@/lib/schema';
@@ -242,7 +243,7 @@ function LeadForm({ excludeIndia, onClose, onSaved }: { excludeIndia: boolean; o
   </form></Modal>;
 }
 
-function LeadDetail({ lead, onClose, onSaved }: { lead: Lead; onClose: () => void; onSaved: (lead: Lead) => void }) {
+export function LeadDetail({ lead, onClose, onSaved }: { lead: Lead; onClose: () => void; onSaved: (lead: Lead) => void }) {
   const [stage, setStage] = useState(lead.stage);
   const [value, setValue] = useState(String(lead.value));
   const [busy, setBusy] = useState(false);
@@ -257,7 +258,7 @@ function LeadDetail({ lead, onClose, onSaved }: { lead: Lead; onClose: () => voi
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Changes could not be saved.'); }
     finally { setBusy(false); }
   }
-  return <Modal title={lead.company} onClose={() => { if (!busy) onClose(); }}><p className="modal-description">{lead.segment || 'Business contact'} · {lead.country}</p><LeadResearch leadId={lead.id} source={lead.source} /><details className="legacy-contact-details"><summary>Contact details and previous assessment</summary><dl>{[
-    ['Contact', lead.contact_name || 'Not provided'], ['Email', lead.email], ['Website', lead.website || 'Not provided'], ['Source', lead.source], ['Lawful basis', lead.lawful_basis], ['Added', date(lead.created_at)], ['Fit assessment', lead.score_reason || 'Not scored'], ['Email verification', lead.email_verification_status || 'unverified'], ['Last verified', lead.email_verified_at ? date(lead.email_verified_at) : 'Not verified'], ['Contact review', lead.contact_review_status === 'needs_review' ? 'Required before outreach' : lead.contact_review_status || 'Not reviewed'],
+  return <Modal title={lead.company} onClose={() => { if (!busy) onClose(); }}><p className="modal-description">{lead.segment || 'Business contact'} · {lead.country}</p><ContactDetails name={lead.contact_name} email={lead.email} role={lead.role} website={lead.website} /><LeadResearch leadId={lead.id} source={lead.source} /><details className="legacy-contact-details"><summary>Source and previous assessment</summary><dl>{[
+    ['Source', lead.source], ['Lawful basis', lead.lawful_basis], ['Added', date(lead.created_at)], ['Fit assessment', lead.score_reason || 'Not scored'], ['Email verification', lead.email_verification_status || 'unverified'], ['Last verified', lead.email_verified_at ? date(lead.email_verified_at) : 'Not verified'], ['Contact review', lead.contact_review_status === 'needs_review' ? 'Required before outreach' : lead.contact_review_status || 'Not reviewed'],
   ].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></details><form onSubmit={submit}><div className="form-grid"><label>Pipeline stage<select value={stage} onChange={event => setStage(event.target.value)}>{stages.map(name => <option key={name}>{name}</option>)}</select></label><label>Opportunity value (USD)<input type="number" required min={0} max={9999999999.99} step="0.01" value={value} onChange={event => setValue(event.target.value)} /></label></div><p className="subtle-note">Changing a stage updates your CRM records. It does not record a payment or send an email.</p>{error && <p role="alert" className="form-error">{error}</p>}<div className="modal-actions"><Button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</Button></div></form></Modal>;
 }

@@ -1,5 +1,18 @@
 @import "tailwindcss";
 
+/* Contact details stay visible above inquiry evidence. */
+.contact-summary{margin:22px 0 28px;padding:20px;border:1px solid var(--line);border-radius:7px;background:var(--soft)}
+.contact-summary h3{font-size:16px;font-weight:500;margin-bottom:15px}
+.contact-summary dl{margin:0!important}
+.contact-summary dl>div{padding:11px 0!important}
+.contact-summary dl>div:last-child{border-bottom:0}
+.contact-summary a{color:var(--green);text-decoration:underline}
+.contact-summary a svg{display:inline;vertical-align:middle}
+.contact-summary small{display:block;color:var(--muted);font-size:11px;font-weight:400;line-height:1.8;margin-top:6px}
+.inquiry-contact-cell strong,.inquiry-contact-cell small{display:block;line-height:1.7}
+.inquiry-contact-cell small{font-size:10px;color:var(--muted);margin-top:4px}
+@media(max-width:700px){.contact-summary{padding:16px}.contact-summary dl>div{flex-direction:column;gap:7px}.contact-summary dd{max-width:none!important;text-align:left!important}}
+
 /* Project request evidence */
 .inquiry-modal{max-width:850px!important}
 .inquiry-modal h2{padding-right:22px;overflow-wrap:anywhere}

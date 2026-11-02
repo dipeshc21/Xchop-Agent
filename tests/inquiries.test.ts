@@ -5,6 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { NextRequest } from 'next/server';
 import { GET } from '../app/api/inquiries/route';
 import RequestDetail, { type InquiryRecord } from '../components/intent/request-detail';
+import { LeadDetail } from '../components/workspace';
+import type { Lead } from '../lib/models';
 import LeadResearch from '../components/prospecting/lead-research';
 import { publicEvidenceLink, sourcePlatform } from '../components/intent/evidence-fields';
 
@@ -31,7 +33,42 @@ test('project popup presents literal evidence in the four requested fields witho
   assert.ok(html.indexOf(inquiry.discovery_query) > html.indexOf('How this request was discovered'), 'The app query must be identified separately.');
   assert.ok(html.includes('30 Oct 2026'));
   assert.ok(html.includes('review availability'));
-  assert.ok(!html.includes('Contact name') && !html.includes('Email'), 'A project request does not require a fabricated contact.');
+  assert.ok(html.includes('Contact details') && html.includes('Not published'));
+  assert.ok(!html.includes('mailto:'), 'A missing email must never become a fabricated contact address.');
+  assert.ok(html.includes('Use the original platform to respond'));
+});
+
+test('published project contacts stay visible above the four additional evidence fields', () => {
+  const html = renderToStaticMarkup(createElement(RequestDetail, {
+    inquiry: { ...inquiry, contact_name: 'Published Buyer Contact', contact_email: 'buyer@buyer.org', contact_source_url: inquiry.source_url }, onClose() {},
+  }));
+  assert.ok(html.includes('Published Buyer Contact'));
+  assert.ok(html.includes('buyer@buyer.org'));
+  assert.ok(html.includes('mailto:buyer%40buyer.org'));
+  assert.ok(html.includes('Contact source'));
+  assert.ok(html.indexOf('Published Buyer Contact') < html.indexOf(labels[0]), 'Contact identity must appear before source/requirement details.');
+  assert.ok(html.indexOf('buyer@buyer.org') < html.indexOf('<details'), 'Contact email must not be collapsed.');
+  assert.ok(html.includes('email deliverability has not been verified'), 'A published email is not a delivery verification.');
+  for (const label of labels) assert.ok(html.includes(label));
+});
+
+test('the existing Vivid Impact popup keeps its saved contact name and email visible without expanding details', () => {
+  const lead: Lead = {
+    id: inquiry.id, company: 'Vivid Impact', website: 'https://vividimpact.com', contact_name: 'Emily Kern',
+    email: 'emily.kern@vividimpact.com', country: 'United States', role: 'Director - Promotional Products', stage: 'New', score: 80,
+    score_reason: 'Earlier company-fit assessment', value: 0, segment: 'Design agency',
+    created_at: '2026-10-30T00:00:00Z', updated_at: '2026-10-30T00:00:00Z',
+    source: 'Hunter official APIs: company discovery, enrichment, contact search and email verification', lawful_basis: 'Owner collection note',
+    email_verification_status: 'valid', contact_review_status: 'needs_review',
+  };
+  const html = renderToStaticMarkup(createElement(LeadDetail, { lead, onClose() {}, onSaved() {} }));
+  for (const value of ['Emily Kern', 'emily.kern@vividimpact.com', 'https://vividimpact.com']) {
+    assert.ok(html.includes(value));
+    assert.ok(html.indexOf(value) < html.indexOf(labels[0]), `${value} must be visible above additional evidence.`);
+    assert.ok(html.indexOf(value) < html.indexOf('<details'), `${value} must not require expanding a section.`);
+  }
+  for (const label of labels) assert.ok(html.includes(label));
+  assert.ok(html.includes('Source and previous assessment'));
 });
 
 test('legacy company contacts immediately show unknown requirements instead of repurposing fit or email data', () => {

@@ -4,6 +4,7 @@ import { assertAutomationOwner, getProspectingReadiness } from '../prospecting/s
 import { countryNames, prospectingConfigSchema } from '../prospecting/types';
 import type { DurableStep, ProspectingSummary } from '../prospecting/runner';
 import { normalizeProjectUrl, qualifyProjectRequest } from './evidence';
+import { extractProjectContact } from './contact';
 import { createProjectDiscoveryRepository, type ProjectDiscoveryRepository } from './repository';
 import { IntentProviderError, TavilyClient } from './tavily';
 import type { ProjectQualification, ProjectSearchPage, ProjectSearchResult } from './types';
@@ -72,6 +73,7 @@ export async function runProjectDiscovery(
   const ownerId = input.ownerId, runId = input.runId;
   let nextSearchIndex = claim.search_index ?? 0;
   const omissions = new Map<string, number>();
+  let contactsOmitted = 0;
   function omit(reason: string) {
     const safeReason = Object.hasOwn(omissionLabels, reason) ? reason : 'invalid';
     omissions.set(safeReason, (omissions.get(safeReason) ?? 0) + 1);
@@ -137,6 +139,9 @@ export async function runProjectDiscovery(
     }
     const config = parsed.data;
     if (!(dependencies.ready?.() ?? getProspectingReadiness(ownerId, config).ready)) throw new StopProjectRun('configuration', 'failed', messages.configuration);
+    // The contact update is additive. Existing migration-006 installations keep
+    // finding requests while the owner installs optional public-contact storage.
+    const contactStorage = await step.run('contact-schema', async () => repository.supportsContacts ? repository.supportsContacts(ownerId) : false);
     await active();
     const capacity = await repository.capacity(ownerId, runId, token);
     // A recovered run may already own its paid search reservation. Its cached
@@ -176,9 +181,19 @@ export async function runProjectDiscovery(
         await mark(sourceUrl, 'rejected', 'evidence_required'); omit('evidence_required'); continue;
       }
       await active();
-      const saved = await step.run(`save:${identity(sourceUrl)}`, () => repository.persist(ownerId, runId, token, {
-        evidence: qualification.evidence, sourceText: result.rawContent, discoveryQuery: query,
-      }));
+      const contact = contactStorage ? extractProjectContact(result.rawContent, sourceUrl) : null;
+      const payload = { evidence: qualification.evidence, sourceText: result.rawContent, discoveryQuery: query,
+        ...(contact && (contact.contactName || contact.contactEmail) ? { contact } : {}) };
+      let saved = await step.run(`save:${identity(sourceUrl)}`, () => repository.persist(ownerId, runId, token, payload));
+      if (saved.status === 'contact_evidence_required' && payload.contact) {
+        // A contact is optional. Never discard a valid project or invent an email
+        // when source attribution for the contact is incomplete.
+        await active();
+        saved = await step.run(`save-without-contact:${identity(sourceUrl)}`, () => repository.persist(ownerId, runId, token, {
+          evidence: qualification.evidence, sourceText: result.rawContent, discoveryQuery: query,
+        }));
+        contactsOmitted++;
+      }
       if (saved.status === 'paused') throw new StopProjectRun('paused', 'cancelled', 'Project discovery was paused before saving a request.');
       if (saved.status === 'daily_limit') throw new StopProjectRun('daily_lead_limit', 'completed', 'The daily saved-request cap was reached. Remaining search results were not saved.');
       if (saved.status === 'saved') { summary.leadsSaved++; await mark(sourceUrl, 'saved'); }
@@ -189,6 +204,7 @@ export async function runProjectDiscovery(
     summary.status = 'completed';
     const counts = [...omissions].map(([reason, count]) => `${omissionLabels[reason]}: ${count}`).join('; ');
     summary.message = `Public project-request search finished.${counts ? ` Omitted — ${counts}.` : ''} Saved requests require literal development, date, and country evidence. Review the original request's availability before responding.`.slice(0, 500);
+    if (contactsOmitted) summary.message = `${summary.message.slice(0, 390)} Published contact evidence was incomplete for ${contactsOmitted} requests; use their original platform.`.slice(0, 500);
   } catch (error) {
     summary.status = error instanceof StopProjectRun ? error.status : 'failed';
     summary.errorCode = error instanceof StopProjectRun ? error.code : safeErrorCode(error);

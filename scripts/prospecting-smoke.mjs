@@ -26,6 +26,7 @@ const inquiryFixture = {
   service: 'website', source_url: 'https://procurement.agency.com/requests/site-rebuild', platform: 'procurement.agency.com',
   published_at: `${today}T00:00:00.000Z`, deadline_at: futureDeadline, country_code: 'US', buyer_name: 'HTTP fixture buyer',
   discovery_query: 'APP SEARCH QUERY ONLY — not private buyer history', discovered_at: new Date().toISOString(),
+  contact_name: 'Published contact fixture', contact_email: 'buyer@buyer.org', contact_source_url: 'https://procurement.agency.com/requests/site-rebuild',
 };
 const ownerEmail = 'prospecting-smoke-owner@example.test';
 const publishableKey = 'sb_publishable_prospecting_smoke_test_only';
@@ -41,6 +42,7 @@ const user = {
 };
 let config = { ...defaultProspectingConfig, lawfulBasis: 'HTTP fixture basis for reviewing relevant business prospects.' };
 let migrationMissing = false;
+let contactMigrationMissing = false;
 const suppressionEntries = [{ id: 'suppression-fixture', email: 'blocked@example.test', reason: 'do-not-contact', created_at: '2026-01-01T00:00:00Z' }];
 const requests = [];
 const mock = createServer(async (request, response) => {
@@ -69,7 +71,14 @@ const mock = createServer(async (request, response) => {
     assert.ok(url.searchParams.get('published_at')?.startsWith('gte.'), 'Only recent requests should be listed.');
     assert.match(url.searchParams.get('or') || '', /deadline_at\.is\.null,deadline_at\.gte\./, 'Expired requests must be filtered.');
     assert.ok(!url.searchParams.get('select')?.includes('sourceText'), 'Full source pages must not be returned.');
+    if (contactMigrationMissing && url.searchParams.get('select')?.includes('contact_name')) {
+      reply({ code: '42703', message: 'column project_requests.contact_name does not exist' }, 400); return;
+    }
     response.setHeader('Content-Range', '0-0/1');
+    if (contactMigrationMissing) {
+      const { contact_name, contact_email, contact_source_url, ...legacyRequest } = inquiryFixture;
+      reply([legacyRequest]); return;
+    }
     reply([inquiryFixture]); return;
   }
   if (request.method === 'GET' && url.pathname === '/rest/v1/prospecting_settings') {
@@ -200,7 +209,18 @@ globalThis.fetch = function(input, init) {
   assert.equal(inquiries.inquiries[0].request_text, inquiryFixture.request_text);
   assert.equal(inquiries.inquiries[0].service, 'website');
   assert.equal(inquiries.inquiries[0].discovery_query, inquiryFixture.discovery_query);
+  assert.equal(inquiries.inquiries[0].contact_name, inquiryFixture.contact_name);
+  assert.equal(inquiries.inquiries[0].contact_email, inquiryFixture.contact_email);
+  assert.equal(inquiries.contactStorageReady, true);
   assert.ok(!JSON.stringify(inquiries).includes('rawContent'));
+  contactMigrationMissing = true;
+  const withoutContactStorage = await fetch(`${origin}/api/inquiries`, { headers });
+  assert.equal(withoutContactStorage.status, 200, 'Contact migration is additive, not a blocker for existing requests.');
+  const compatible = await withoutContactStorage.json();
+  assert.equal(compatible.contactStorageReady, false);
+  assert.equal(compatible.inquiries[0].request_text, inquiryFixture.request_text);
+  assert.equal('contact_email' in compatible.inquiries[0], false, 'Missing storage must not invent contact details.');
+  contactMigrationMissing = false;
   const legacyView = await fetch(`${origin}/?view=leads`, { headers, redirect: 'manual' });
   assert.equal(legacyView.status, 307);
   assert.equal(new URL(legacyView.headers.get('location'), origin).pathname, '/inquiries');

@@ -9,17 +9,19 @@ The app now qualifies published buyer requests for website/application work. It 
 - Public request text, required service, source platform, original URL, source dates, and the app's own separate discovery query are stored with the request.
 - The popup does not claim access to private search history or browsing activity. Existing company contacts show unknown/unrecorded project requirements.
 - Requests can be saved without email addresses; none are invented. Review the source platform's posting before responding.
+- Saved contact names and email addresses stay visible above the four inquiry fields. New project contacts are extracted only from explicit project-contact or submission instructions, with the original source recorded; a published address is not represented as delivery-verified.
 - The durable worker uses owner binding, pause/version/lease checks, database-backed request reservations, daily limits, and duplicate source checks. It does not send messages or submit proposals.
 - Migration 006 preserves earlier contacts, pauses old company-discovery configuration, and adds separate owner-scoped project-request records. The downloadable SQL must match its reviewed migration exactly.
+- Optional additive migration 007 stores published project contacts and can fill missing contact fields on a same-source request without counting another lead. The existing list and worker continue to work before 007 is installed; it is not necessary to restore earlier contacts in the popup.
 
 ## Test evidence
 
 The complete project-request release passed these checks in the cloud workspace:
 
-- `npm test` — all 21 test files, including real embedded PostgreSQL execution through migration 006, request/source binding, tenant isolation, caps, pause/retry handling, source qualification, popup evidence, and byte-for-byte SQL downloads.
+- `npm test` — all 23 test files, including real embedded PostgreSQL execution through migration 007, request/source/contact binding, tenant isolation, caps, pause/retry handling, source qualification, visible contact identity above popup evidence, and byte-for-byte SQL downloads.
 - `npm run typecheck` and `npm run build` — TypeScript and the Next.js production build.
 - `npm run smoke` and `npm run smoke:settings` — setup/authentication boundaries and authenticated settings access/save/reload even when dashboard setup is incomplete.
-- `npm run smoke:prospecting` — actual production HTTP routes with localhost fixtures: recent/unexpired owner requests, old lead links opening the new request list, request-only counters, exact migration 006 download, missing-schema handling, keyless pause, guarded enabling/queueing, safe research projection, suppression, and unsigned-job rejection. External provider requests are blocked and asserted absent.
+- `npm run smoke:prospecting` — actual production HTTP routes with localhost fixtures: recent/unexpired owner requests, published contact reads and compatibility before migration 007, old lead links opening the new request list, request-only counters, exact migration 006 download, missing-schema handling, keyless pause, guarded enabling/queueing, safe research projection, suppression, and unsigned-job rejection. External provider requests are blocked and asserted absent.
 
 Run release checks after changes:
 
@@ -38,6 +40,7 @@ Provider/worker tests inject fixtures. Database tests execute embedded PostgreSQ
 
 1. Update the code, run only missing migrations in order through 006, and add the actual `TAVILY_API_KEY` to the server. Keep the existing Supabase owner/admin and Inngest settings. Follow [README.md](README.md) or `/prospecting/setup`.
 2. Confirm old contacts remain unconfirmed and the new project-request list does not invent requirements for them. Review the new targeting and conservative limits, save, and enable discovery.
+   Contact names and email addresses should be immediately visible above the inquiry evidence. To collect future published project contacts, run migration 007 once after 006; do not rerun 006 as part of that update. The optional SQL is available on `/prospecting/setup`.
 3. Queue one run. Inspect the Inngest execution and app run history until it finishes. A queued row alone is not proof that provider work happened. The search can consume credits even if zero pages qualify.
 4. For any saved result, open the original URL and verify the literal request, matching service, publication evidence, selected country, and deadline. Verify that the popup does not confuse the app's search query with the buyer's private search history.
 5. Check that a supplier page, job advertisement, undated request, closed/expired project, and missing-country result do not appear as qualified requests. A run saving zero requests can be correct.

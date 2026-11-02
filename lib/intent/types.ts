@@ -44,6 +44,9 @@ export type ProjectInquiry = {
   deadline_at: string | null;
   country_code: string;
   buyer_name: string | null;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  contact_source_url?: string | null;
   discovery_query: string;
   evidence: ProjectEvidence;
   discovered_at: string;
