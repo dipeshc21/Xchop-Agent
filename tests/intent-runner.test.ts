@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { runProjectDiscovery, buildProjectSearchQuery } from '../lib/intent/runner';
 import type { ProjectDiscoveryRepository, ProjectPersistPayload, ProjectPersistResult, ProjectRunCapacity } from '../lib/intent/repository';
 import { IntentProviderError } from '../lib/intent/tavily';
-import { RequestCheckpointError } from '../lib/prospecting/repository';
+import { RepositoryError, RequestCheckpointError } from '../lib/prospecting/repository';
 import type { ProjectEvidence, ProjectSearchResult } from '../lib/intent/types';
 import type { ClaimedRun, Reservation } from '../lib/prospecting/repository';
 import type { DurableStep } from '../lib/prospecting/runner';
@@ -249,6 +249,43 @@ test('unrelated extracted pages cannot provide evidence for a missing source', a
   const result = await runProjectDiscovery(input, step, { ...dependencies, provider });
   assert.equal(result.status, 'completed'); assert.equal(result.leadsSaved, 0); assert.equal(result.skippedCount, 1);
   assert.match(result.message, /no source text: 1/);
+});
+
+test('previously saved sources are skipped before source retrieval or qualification while new requests are saved', async () => {
+  const { state, repository, dependencies } = fixture();
+  const old = { ...project('https://procurement.buyerboard.org/notices/already-saved'), rawContent: '' };
+  const fresh = project('https://procurement.buyerboard.org/notices/new-today'); state.results = [old, fresh];
+  let lookups = 0, extractions = 0, qualifications = 0;
+  repository.knownSources = async (owner, urls) => {
+    lookups++; assert.equal(owner, ownerId); assert.deepEqual(urls, [old.url, fresh.url]);
+    return [old.url, 'https://outsidebuyer.org/unrequested-source'];
+  };
+  const provider = { ...dependencies.provider, async extract() { extractions++; return { results: [] }; } };
+  const result = await runProjectDiscovery(input, step, { ...dependencies, provider, qualify(result) {
+    qualifications++; assert.equal(result.url, fresh.url); return { qualified: true, evidence: evidence(result) };
+  } });
+  assert.equal(result.status, 'completed'); assert.equal(result.leadsSaved, 1); assert.equal(result.skippedCount, 1);
+  assert.equal(lookups, 1); assert.equal(extractions, 0); assert.equal(qualifications, 1);
+  assert.equal(state.persisted[0].evidence.sourceUrl, fresh.url); assert.match(result.message, /duplicate request: 1/);
+  assert.ok(!result.message.includes('no source text'));
+});
+
+test('an all-known daily batch reports duplicates without re-saving or buying page retrieval', async () => {
+  const { state, repository, dependencies } = fixture();
+  state.results[0].rawContent = ''; repository.knownSources = async (_owner, urls) => urls;
+  let extractions = 0;
+  const provider = { ...dependencies.provider, async extract() { extractions++; return { results: [] }; } };
+  const result = await runProjectDiscovery(input, step, { ...dependencies, provider });
+  assert.equal(result.status, 'completed'); assert.equal(result.leadsSaved, 0); assert.equal(state.persisted.length, 0);
+  assert.equal(extractions, 0); assert.equal(state.ledger.size, 1); assert.match(result.message, /duplicate request: 1/);
+});
+
+test('a failed known-source read cannot become a new lead or cause another paid search', async () => {
+  const { state, repository, dependencies } = fixture();
+  repository.knownSources = async () => { throw new RepositoryError(); };
+  const result = await runProjectDiscovery(input, step, dependencies);
+  assert.equal(result.status, 'failed'); assert.equal(result.errorCode, 'database');
+  assert.equal(state.persisted.length, 0); assert.equal(state.calls.filter(call => call === 'search').length, 1);
 });
 
 test('valid full-text requests survive a separate source-retrieval failure', async () => {

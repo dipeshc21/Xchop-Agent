@@ -120,10 +120,10 @@ test('inquiry reads fail closed without configuration and reject unsupported fil
     assert.match((await response.json()).error, /Connect Supabase/);
   });
   await withConfiguration({ NEXT_PUBLIC_SUPABASE_URL: 'https://configured.supabase.co', NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_boundary_check', NEXT_PUBLIC_SUPABASE_ANON_KEY: undefined }, async () => {
-    for (const query of ['service=unknown', 'country=IN']) {
+    for (const query of ['service=unknown', 'country=IN', 'period=unsupported']) {
       const response = await GET(new NextRequest(`http://localhost:3000/api/inquiries?${query}`));
       assert.equal(response.status, 400);
-      assert.match((await response.json()).error, /supported country and service/);
+      assert.match((await response.json()).error, query.startsWith('period=') ? /New today or Saved requests/ : /supported country and service/);
     }
   });
 });

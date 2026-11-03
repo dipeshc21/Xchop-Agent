@@ -208,10 +208,14 @@ export async function runProjectDiscovery(
       nextCursors = { ...claim.cursors, publicQueryRound: (queryRound + Math.floor((index + 1) / partitions.length)) % 2 };
       const candidates = page.results.slice(0, limit);
       reviewed += candidates.length;
+      const sourceUrls = [...new Set(candidates.map(result => normalizeProjectUrl(result.url)).filter((url): url is string => Boolean(url)))];
+      const known = repository.knownSources && sourceUrls.length
+        ? await step.run(`known-sources:${operation}`, () => repository.knownSources!(ownerId, sourceUrls)) : [];
+      const knownSources = new Set(known.filter(url => sourceUrls.includes(url)));
       let deferredExtractionFailure: StopProjectRun | null = null;
       if (provider.extract) {
         const missingUrls = [...new Set(candidates.filter(result => result.rawContent.trim().length < 80)
-          .map(result => normalizeProjectUrl(result.url)).filter((url): url is string => Boolean(url)))];
+          .map(result => normalizeProjectUrl(result.url)).filter((url): url is string => url !== null && !knownSources.has(url)))];
         if (missingUrls.length) {
           const extractionCapacity = await repository.capacity(ownerId, runId, token);
           if (!extractionCapacity.allowed && extractionCapacity.reason === 'daily_lead_limit') {
@@ -246,6 +250,9 @@ export async function runProjectDiscovery(
         if (seen.has(sourceUrl)) { omit('duplicate'); continue; }
         seen.add(sourceUrl);
         summary.companiesFound++;
+        if (knownSources.has(sourceUrl)) {
+          await mark(sourceUrl, 'rejected', 'duplicate'); omit('duplicate'); continue;
+        }
         await mark(sourceUrl, 'processing');
         const qualification = await step.run(`qualify:${identity(sourceUrl)}`, async () => qualify(result, {
           countries: config.countries, services: config.services, maxAgeDays: config.maxAgeDays,

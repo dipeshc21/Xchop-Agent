@@ -28,6 +28,19 @@ const inquiryFixture = {
   discovery_query: 'APP SEARCH QUERY ONLY — not private buyer history', discovered_at: new Date().toISOString(),
   contact_name: 'Published contact fixture', contact_email: 'buyer@buyer.org', contact_source_url: 'https://procurement.agency.com/requests/site-rebuild',
 };
+const priorDayInquiryFixture = { ...inquiryFixture,
+  id: '00000000-0000-4000-8000-000000000090', title: 'Previously saved HTTP fixture request',
+  source_url: 'https://procurement.agency.com/requests/prior-day-project',
+  published_at: new Date(Date.now() - 86_400_000).toISOString(),
+  discovered_at: new Date(Date.now() - 86_400_000).toISOString(),
+};
+const historicalInquiryFixture = { ...priorDayInquiryFixture,
+  id: '00000000-0000-4000-8000-000000000089', title: 'Expired fixture request kept for follow-up',
+  source_url: 'https://procurement.agency.com/requests/historical-project',
+  published_at: new Date(Date.now() - 60 * 86_400_000).toISOString(),
+  discovered_at: new Date(Date.now() - 60 * 86_400_000).toISOString(),
+  deadline_at: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+};
 const ownerEmail = 'prospecting-smoke-owner@example.test';
 const publishableKey = 'sb_publishable_prospecting_smoke_test_only';
 const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -74,18 +87,34 @@ const mock = createServer(async (request, response) => {
     return;
   }
   if (request.method === 'GET' && url.pathname === '/rest/v1/project_requests') {
-    assert.ok(url.searchParams.get('published_at')?.startsWith('gte.'), 'Only recent requests should be listed.');
-    assert.match(url.searchParams.get('or') || '', /deadline_at\.is\.null,deadline_at\.gte\./, 'Expired requests must be filtered.');
+    const dailyView = url.searchParams.getAll('discovered_at').length > 0;
+    if (dailyView) {
+      assert.ok(url.searchParams.get('published_at')?.startsWith('gte.'), 'Daily discoveries must be recent.');
+      assert.match(url.searchParams.get('or') || '', /deadline_at\.is\.null,deadline_at\.gte\./, 'Daily discoveries must not be expired.');
+    } else {
+      assert.equal(url.searchParams.get('published_at'), null, 'Earlier saved requests remain accessible for follow-ups.');
+      assert.equal(url.searchParams.get('or'), null, 'Passed deadlines are history, not new daily opportunities.');
+    }
     assert.ok(!url.searchParams.get('select')?.includes('sourceText'), 'Full source pages must not be returned.');
     if (contactMigrationMissing && url.searchParams.get('select')?.includes('contact_name')) {
       reply({ code: '42703', message: 'column project_requests.contact_name does not exist' }, 400); return;
     }
-    response.setHeader('Content-Range', '0-0/1');
-    if (contactMigrationMissing) {
-      const { contact_name, contact_email, contact_source_url, ...legacyRequest } = inquiryFixture;
-      reply([legacyRequest]); return;
+    const discoveredFilters = url.searchParams.getAll('discovered_at');
+    if (discoveredFilters.length) {
+      assert.equal(discoveredFilters.length, 2, 'The daily batch requires inclusive start and exclusive end boundaries.');
+      const start = discoveredFilters.find(value => value.startsWith('gte.'))?.slice(4);
+      const end = discoveredFilters.find(value => value.startsWith('lt.'))?.slice(3);
+      assert.ok(start && end); assert.equal(Date.parse(end) - Date.parse(start), 86_400_000);
+      assert.ok(start.endsWith('T18:30:00.000Z'), 'India midnight is 18:30 UTC on the previous day.');
+      assert.ok(Date.parse(start) <= Date.now() && Date.now() < Date.parse(end));
     }
-    reply([inquiryFixture]); return;
+    const records = [inquiryFixture, priorDayInquiryFixture, historicalInquiryFixture].filter(row => discoveredFilters.every(value =>
+      value.startsWith('gte.') ? Date.parse(row.discovered_at) >= Date.parse(value.slice(4)) : Date.parse(row.discovered_at) < Date.parse(value.slice(3))));
+    response.setHeader('Content-Range', records.length ? `0-${records.length - 1}/${records.length}` : '*/0');
+    if (contactMigrationMissing) {
+      reply(records.map(({ contact_name, contact_email, contact_source_url, ...legacyRequest }) => legacyRequest)); return;
+    }
+    reply(records); return;
   }
   if (request.method === 'GET' && url.pathname === '/rest/v1/prospecting_settings') {
     reply([{ data: config, next_run_at: null }]); return;
@@ -218,12 +247,15 @@ globalThis.fetch = function(input, init) {
   assert.ok(!JSON.stringify(status).includes(accessToken)); assert.ok(!JSON.stringify(status).includes('claim_token'));
   const inquiriesPage = await fetch(`${origin}/inquiries`, { headers, redirect: 'manual' });
   assert.equal(inquiriesPage.status, 200);
-  assert.match(await inquiriesPage.text(), /See the request behind the lead/);
+  const inquiriesHtml = await inquiriesPage.text();
+  assert.match(inquiriesHtml, /See the request behind the lead/);
+  assert.match(inquiriesHtml, /New today/); assert.match(inquiriesHtml, /Saved requests/);
   const inquiryResponse = await fetch(`${origin}/api/inquiries`, { headers });
   assert.equal(inquiryResponse.status, 200);
   const inquiries = await inquiryResponse.json();
   assert.equal(inquiries.migrationReady, true);
   assert.equal(inquiries.pagination.total, 1);
+  assert.equal(inquiries.inquiries[0].id, inquiryFixture.id);
   assert.equal(inquiries.inquiries[0].request_text, inquiryFixture.request_text);
   assert.equal(inquiries.inquiries[0].service, 'website');
   assert.equal(inquiries.inquiries[0].discovery_query, inquiryFixture.discovery_query);
@@ -231,6 +263,13 @@ globalThis.fetch = function(input, init) {
   assert.equal(inquiries.inquiries[0].contact_email, inquiryFixture.contact_email);
   assert.equal(inquiries.contactStorageReady, true);
   assert.ok(!JSON.stringify(inquiries).includes('rawContent'));
+  const savedResponse = await fetch(`${origin}/api/inquiries?period=saved`, { headers });
+  assert.equal(savedResponse.status, 200);
+  const saved = await savedResponse.json();
+  assert.equal(saved.pagination.total, 3, 'Prior-day and expired requests stay available for follow-ups, without appearing as new today.');
+  assert.ok(saved.inquiries.some(row => row.id === priorDayInquiryFixture.id));
+  assert.ok(saved.inquiries.some(row => row.id === historicalInquiryFixture.id));
+  assert.equal((await fetch(`${origin}/api/inquiries?period=unsupported`, { headers })).status, 400);
   contactMigrationMissing = true;
   const withoutContactStorage = await fetch(`${origin}/api/inquiries`, { headers });
   assert.equal(withoutContactStorage.status, 200, 'Contact migration is additive, not a blocker for existing requests.');

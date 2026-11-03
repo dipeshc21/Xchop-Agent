@@ -4,6 +4,7 @@ import { isSupabaseConfigured } from '@/lib/config';
 import { countryNames } from '@/lib/prospecting/types';
 import { requestedServiceSchema } from '@/lib/intent/types';
 import { supabaseServer } from '@/lib/supabase/server';
+import { indiaDayWindow, inquiryPeriod } from '@/lib/intent/day-window';
 
 export const dynamic = 'force-dynamic';
 const PAGE_SIZE = 50;
@@ -36,7 +37,9 @@ export async function GET(request: NextRequest) {
   const q = (params.get('q') ?? '').trim().slice(0, 100);
   const country = (params.get('country') ?? '').trim().toUpperCase();
   const service = (params.get('service') ?? '').trim();
+  const period = inquiryPeriod(params.get('period'));
   const page = Math.max(1, Math.min(100000, Number.parseInt(params.get('p') ?? '1', 10) || 1));
+  if (!period) return NextResponse.json({ error: 'Choose New today or Saved requests.' }, { status: 400 });
   if ((country && !Object.hasOwn(countryNames, country)) || (service && !requestedServiceSchema.safeParse(service).success)) {
     return NextResponse.json({ error: 'Choose a supported country and service filter.' }, { status: 400 });
   }
@@ -59,13 +62,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Check the maximum request age in your saved discovery settings.' }, { status: 503 });
     }
     const now = new Date();
+    const dayWindow = period === 'today' ? indiaDayWindow(now) : null;
     const cutoff = new Date(now.getTime() - maxAgeDays * 86_400_000).toISOString();
     function requestQuery(columns: string) {
-    let query = db.from('project_requests').select(columns, { count: 'exact' }).eq('owner_id', ownerId)
-      .gte('published_at', cutoff).or(`deadline_at.is.null,deadline_at.gte.${now.toISOString()}`)
-      .order('discovered_at', { ascending: false }).order('id', { ascending: false })
+    let query = db.from('project_requests').select(columns, { count: 'exact' }).eq('owner_id', ownerId);
+    // New discoveries must still be recent and open. Saved history remains
+    // accessible after the source deadline, so follow-up records do not vanish.
+    if (period === 'today') query = query.gte('published_at', cutoff).or(`deadline_at.is.null,deadline_at.gte.${now.toISOString()}`);
+    query = query.order('discovered_at', { ascending: false }).order('id', { ascending: false })
       .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
     if (q) query = query.ilike('title', `%${q.replace(/[\\%_]/g, '\\$&')}%`);
+    if (dayWindow) query = query.gte('discovered_at', dayWindow.start).lt('discovered_at', dayWindow.end);
     if (country) query = query.eq('country_code', country);
     if (service) query = service === 'website_and_application'
       ? query.eq('service', service) : query.in('service', [service, 'website_and_application']);
@@ -92,7 +99,7 @@ export async function GET(request: NextRequest) {
     if (!parsed.success || !Number.isSafeInteger(count) || count === null || count < 0) {
       return NextResponse.json({ error: 'Project request evidence could not be read. Check migration 006 and your stored records.' }, { status: 503 });
     }
-    return NextResponse.json({ migrationReady: true, contactStorageReady, inquiries: parsed.data,
+    return NextResponse.json({ migrationReady: true, contactStorageReady, inquiries: parsed.data, period, dayWindow,
       pagination: { page, pageSize: PAGE_SIZE, total: count }, maxAgeDays },
     { headers: { 'Cache-Control': 'private, no-store' } });
   } catch {

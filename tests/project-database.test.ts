@@ -145,6 +145,33 @@ test('public project evidence is source-bound, owner-isolated, deduplicated by r
   } finally { await db.close(); }
 });
 
+test('a prior-day source stays historical and cannot become a new lead in later runs or after deletion', async () => {
+  const { db, auth, service, rpc, start, save } = await setup();
+  try {
+    const firstRun = await start(); const fixture = project();
+    const first = await save(firstRun, fixture); assert.equal(first.status, 'saved');
+    await db.exec('reset role');
+    await db.exec("update public.project_requests set discovered_at=now()-interval '1 day'; update public.agent_logs set created_at=now()-interval '1 day' where agent='ProjectRequestAgent'");
+    const originalDate = (await db.query<{ value: string }>('select discovered_at::text as value from public.project_requests')).rows[0].value;
+    await service();
+    const finish = (run: string) => rpc('finish_prospecting_run($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9::jsonb)',
+      [owner, run, token, 'completed', '{}', 'Daily source review completed.', null, 0, '{}']);
+    assert.equal(await finish(firstRun), true);
+    const secondRun = await start();
+    const repeated = await save(secondRun, fixture);
+    assert.equal(repeated.status, 'duplicate'); assert.equal(repeated.request_id, first.request_id);
+    await auth();
+    const rows = await db.query<{ value: string }>('select discovered_at::text as value from public.project_requests');
+    assert.equal(rows.rows.length, 1); assert.equal(rows.rows[0].value, originalDate, 'A repeat cannot refresh yesterday’s discovery date.');
+    const usage = await rpc<{ project_requests_saved: number }>('prospecting_usage()');
+    assert.equal(usage.project_requests_saved, 0, 'Yesterday’s source must not count as a new lead today.');
+    await service(); assert.equal(await finish(secondRun), true);
+    await db.exec('reset role'); await db.exec('delete from public.project_requests');
+    const thirdRun = await start();
+    assert.equal((await save(thirdRun, fixture)).status, 'duplicate', 'The immutable saved-source audit prevents reintroducing a deleted lead.');
+  } finally { await db.close(); }
+});
+
 test('dated request freshness, buyer country, offered service, UTC daily caps and immutable run totals are enforced', async () => {
   const { db, auth, service, rpc, start, save, record } = await setup();
   try {
