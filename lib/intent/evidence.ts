@@ -36,40 +36,100 @@ const monthNumbers: Record<string, number> = {
   september: 8, oct: 9, october: 9, nov: 10, november: 10, dec: 11, december: 11,
 };
 const monthPattern = '(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)';
-const datePattern = `(?:[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}[ \\t]+${monthPattern}[ \\t]+[0-9]{4}|${monthPattern}[ \\t]+[0-9]{1,2}(?:,[ \\t]*|[ \\t]+)[0-9]{4})`;
+const datePattern = `(?:[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}(?:st|nd|rd|th)?[ \\t]+${monthPattern}[ \\t]+[0-9]{4}|${monthPattern}[ \\t]+[0-9]{1,2}(?:st|nd|rd|th)?(?:,[ \\t]*|[ \\t]+)[0-9]{4})`;
 const publishedLabel = '(?:published(?:[ \\t]+(?:on|date))?|posted(?:[ \\t]+on)?|publication[ \\t]+date|date[ \\t]+(?:published|posted|issued)|issued(?:[ \\t]+on)?|notice[ \\t]+date|issue[ \\t]+date|date[ \\t]+of[ \\t]+publication)';
-const deadlineLabel = '(?:deadline(?:[ \\t]+date)?|closing[ \\t]+date|bid[ \\t]+closing[ \\t]+date|proposal[ \\t]+deadline|response[ \\t]+deadline|submission[ \\t]+deadline|applications?[ \\t]+close|due[ \\t]+date)';
-function labelledDates(content: string, label: string) {
-  // Anchoring the label prevents a fresh "Last updated" or copyright footer from
-  // replacing the original date of a stale project request.
-  const expression = new RegExp(`^[ \\t]*(?:[-*][ \\t]+)?\\*{0,2}${label}[ \\t]*\\*{0,2}[ \\t]*(?::|[-–])[ \\t]*\\*{0,2}[ \\t]*([^\\r\\n]*)$`, 'gim');
-  const tokenExpression = new RegExp(`^(${datePattern})[ \\t]*\\*{0,2}$`, 'i');
-  const dates: { token: string; time: number }[] = [];
-  for (const match of content.matchAll(expression)) {
-    const token = tokenExpression.exec(match[1].trim())?.[1];
-    // Unparsed deadlines must not silently disappear. In particular, an unknown
-    // numeric date or a timestamp cannot be turned into an invented end-of-day.
-    if (!token) return null;
-    const time = parseDateToken(token);
-    if (time === null) return null;
-    dates.push({ token, time });
+const deadlineLabel = '(?:deadline(?:[ \\t]+date)?|closing[ \\t]+date|closes(?:[ \\t]+on)?|bid[ \\t]+closing(?:[ \\t]+date)?|proposal[ \\t]+deadline|response[ \\t]+deadline|submission[ \\t]+deadline|applications?[ \\t]+close|due[ \\t]+date)';
+type SourceField = { value: string; evidence: string };
+const unmarkField = (value: string) => value.trim().replace(/^#{1,6}[ \t]+/, '').replace(/^[-*][ \t]+/, '').replace(/\*{1,2}/g, '').trim();
+
+/** Recognize a field's layout, not its facts. Keep the untouched source fragment
+ * for attribution and never turn a search snippet or footer into a source date. */
+function sourceFields(content: string, label: string, directValue = false): SourceField[] {
+  const lines = [...content.matchAll(/([^\r\n]*)(?:\r\n|\r|\n|$)/g)].map(match => ({ raw: match[1], start: match.index!, end: match.index! + match[1].length }));
+  const labelOnly = new RegExp(`^${label}[ \\t]*(?::|[-–])?[ \\t]*$`, 'i');
+  const inline = new RegExp(`^${label}(?:[ \\t]*(?::|[-–])[ \\t]*${directValue ? '|[ \\t]+' : ''})(.+)$`, 'i');
+  const fields: SourceField[] = [];
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index], normalized = unmarkField(line.raw);
+    if (!normalized) continue;
+    if (normalized.includes('|')) {
+      const cells = normalized.split('|').map(unmarkField);
+      let tableField = false;
+      for (let cell = 0; cell < cells.length - 1; cell++) {
+        if (labelOnly.test(cells[cell])) { fields.push({ value: cells[cell + 1], evidence: line.raw.trim() }); tableField = true; }
+      }
+      if (tableField) continue;
+    }
+    if (labelOnly.test(normalized)) {
+      let next = index + 1;
+      while (next < lines.length && next <= index + 3 && !lines[next].raw.trim()) next++;
+      const valueLine = next < lines.length && next <= index + 3 ? lines[next] : null;
+      fields.push({ value: valueLine ? unmarkField(valueLine.raw) : '', evidence: content.slice(line.start, valueLine?.end ?? line.end).trim() });
+      continue;
+    }
+    const match = inline.exec(normalized);
+    if (match) fields.push({ value: unmarkField(match[1]), evidence: line.raw.trim() });
   }
-  return dates;
+  return fields;
 }
-function parseDateToken(token: string): number | null {
+
+const zoneOffsets: Record<string, number> = { Z: 0, UTC: 0, GMT: 0, CET: 60, CEST: 120, EST: -300, EDT: -240, PST: -480, PDT: -420, BST: 60 };
+/** The date is the source's literal calendar date at UTC midnight. An explicitly
+ * zoned clock additionally supplies an exact instant. Naked clocks, ambiguous
+ * slash dates and unknown timezone abbreviations cannot supply an instant. */
+export function parseProjectDateToken(token: string): { date: number; instant: number | null } | null {
+  if (typeof token !== 'string' || token.length > 100) return null;
+  const parts = new RegExp(`^(${datePattern})(.*)$`, 'i').exec(token);
+  if (!parts) return null;
+  const dateToken = parts[1];
   let year: number, month: number, day: number;
-  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(token);
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateToken);
   if (iso) { year = Number(iso[1]); month = Number(iso[2]) - 1; day = Number(iso[3]); }
   else {
-    const dayFirst = /^(\d{1,2})[ \t]+([A-Za-z]+)[ \t]+(\d{4})$/.exec(token);
-    const monthFirst = /^([A-Za-z]+)[ \t]+(\d{1,2})(?:,[ \t]*|[ \t]+)(\d{4})$/.exec(token);
-    if (dayFirst) { year = Number(dayFirst[3]); month = monthNumbers[dayFirst[2].toLowerCase()]; day = Number(dayFirst[1]); }
-    else if (monthFirst) { year = Number(monthFirst[3]); month = monthNumbers[monthFirst[1].toLowerCase()]; day = Number(monthFirst[2]); }
+    const dayFirst = /^(\d{1,2})(st|nd|rd|th)?[ \t]+([A-Za-z]+)[ \t]+(\d{4})$/i.exec(dateToken);
+    const monthFirst = /^([A-Za-z]+)[ \t]+(\d{1,2})(st|nd|rd|th)?(?:,[ \t]*|[ \t]+)(\d{4})$/i.exec(dateToken);
+    let ordinal: string | undefined;
+    if (dayFirst) { year = Number(dayFirst[4]); month = monthNumbers[dayFirst[3].toLowerCase()]; day = Number(dayFirst[1]); ordinal = dayFirst[2]; }
+    else if (monthFirst) { year = Number(monthFirst[4]); month = monthNumbers[monthFirst[1].toLowerCase()]; day = Number(monthFirst[2]); ordinal = monthFirst[3]; }
     else return null;
+    const suffix = day % 100 >= 11 && day % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[day % 10] ?? 'th';
+    if (ordinal && ordinal.toLowerCase() !== suffix) return null;
   }
   if (!Number.isInteger(month) || year < 2000 || year > 2100 || day < 1 || day > 31) return null;
   const value = new Date(Date.UTC(year, month, day));
-  return value.getUTCFullYear() === year && value.getUTCMonth() === month && value.getUTCDate() === day ? value.getTime() : null;
+  if (value.getUTCFullYear() !== year || value.getUTCMonth() !== month || value.getUTCDate() !== day) return null;
+  const date = value.getTime();
+  if (!parts[2]) return { date, instant: null };
+  const timePart = /^(?:T|[ \t]+(?:at[ \t]+)?|,[ \t]+(?:at[ \t]+)?)(.+)$/i.exec(parts[2]);
+  if (!timePart) return null;
+  const clock = /^(\d{1,2})(?::(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?[ \t]*(AM|PM)?[ \t]*(Z|UTC|GMT|CET|CEST|EST|EDT|PST|PDT|BST|(?:UTC|GMT)?[+-]\d{2}:?\d{2})$/i.exec(timePart[1]);
+  if (!clock || (!clock[2] && !clock[5])) return null;
+  let hour = Number(clock[1]);
+  const minute = Number(clock[2] ?? 0), second = Number(clock[3] ?? 0), milliseconds = Number((clock[4] ?? '').padEnd(3, '0'));
+  if (minute > 59 || second > 59) return null;
+  if (clock[5]) { if (hour < 1 || hour > 12) return null; hour = hour % 12 + (clock[5].toUpperCase() === 'PM' ? 12 : 0); }
+  else if (hour > 23) return null;
+  const zone = clock[6].toUpperCase();
+  let offset = zoneOffsets[zone];
+  if (offset === undefined) {
+    const numeric = /^(?:UTC|GMT)?([+-])(\d{2}):?(\d{2})$/.exec(zone);
+    if (!numeric) return null;
+    const hours = Number(numeric[2]), minutes = Number(numeric[3]);
+    if (hours > 14 || minutes > 59 || (hours === 14 && minutes !== 0)) return null;
+    offset = (hours * 60 + minutes) * (numeric[1] === '-' ? -1 : 1);
+  }
+  return { date, instant: date + hour * 3_600_000 + minute * 60_000 + second * 1000 + milliseconds - offset * 60_000 };
+}
+
+function labelledDates(content: string, label: string) {
+  const dates: { token: string; time: number; instant: number | null }[] = [];
+  for (const field of sourceFields(content, label, true)) {
+    const parsed = parseProjectDateToken(field.value);
+    // Unparsed deadlines must not silently disappear or become an invented cutoff.
+    if (!parsed || !content.includes(field.value)) return null;
+    dates.push({ token: field.value, time: parsed.date, instant: parsed.instant });
+  }
+  return dates;
 }
 
 const countryPatterns: Record<string, RegExp> = {
@@ -84,17 +144,18 @@ const countryPatterns: Record<string, RegExp> = {
   IN: /\bIndia\b/i,
 };
 function buyerCountry(content: string) {
-  const expression = /^[ \t]*(?:[-*][ \t]+)?\*{0,2}((?:(?:buyer|client|project|organisation|organization|contracting authority|authority)[ \t]+)?(?:country|location|address)|headquarters|place of performance)[ \t]*\*{0,2}[ \t]*[:\-][ \t]*\*{0,2}([^\r\n]{1,180})/gim;
+  const label = '(?:(?:(?:buyer|client|project|organisation|organization|contracting authority|authority)[ \\t]+)?(?:country|location|address)|headquarters|place of performance)';
   const countries = new Map<string, string>();
-  for (const match of content.matchAll(expression)) {
-    const value = match[2];
+  for (const field of sourceFields(content, label)) {
+    const value = field.value;
+    if (value.length > 180 || field.evidence.length > 300) continue;
     // A location such as "Remote / worldwide" is not a buyer country.
     if (/\b(?:worldwide|global|anywhere|remote only)\b/i.test(value)) continue;
     const explicitCode = value.trim().replace(/\*{1,2}$/, '').trim().toUpperCase();
-    if (/country/i.test(match[1]) && Object.hasOwn(countryPatterns, explicitCode)) countries.set(explicitCode, match[0].trim());
+    if (/country/i.test(field.evidence) && Object.hasOwn(countryPatterns, explicitCode)) countries.set(explicitCode, field.evidence);
     for (const [code, pattern] of Object.entries(countryPatterns)) {
       const countryValue = code === 'IE' ? value.replace(/\bNorthern[ \t]+Ireland\b/gi, '') : value;
-      if (pattern.test(countryValue)) countries.set(code, match[0].trim());
+      if (pattern.test(countryValue)) countries.set(code, field.evidence);
     }
   }
   if (countries.has('IN')) return { code: 'IN', evidence: countries.get('IN')! };
@@ -150,6 +211,17 @@ function explicitBuyer(content: string) {
 }
 const rejected = (reason: EvidenceRejection): ProjectQualification => ({ qualified: false, reason });
 
+function primaryRequestBody(content: string, requestText: string | null) {
+  if (!requestText) return content;
+  const requestEnd = content.indexOf(requestText) + requestText.length;
+  // Extracted pages commonly append unrelated vacancies or agency promotions.
+  // Only an explicit separate footer after the literal request can be ignored;
+  // job metadata or supplier claims in the primary notice still veto acceptance.
+  const footer = /^[ \t]*(?:#{1,6}[ \t]+)?(?:\*{1,2})?(?:related (?:jobs?|opportunities|posts?|articles?)|recommended (?:jobs?|posts?|articles?)|other (?:jobs?|vacancies|opportunities)|you may also like|more (?:jobs?|opportunities)|footer)(?:\*{1,2})?[ \t]*:?[ \t]*$/gim;
+  for (const match of content.matchAll(footer)) if (match.index! >= requestEnd) return content.slice(0, match.index);
+  return content;
+}
+
 /** Conservative, deterministic qualification of an explicit public buyer request.
  * Search snippets, estimated search dates, relevance scores and app query terms
  * are never evidence of buyer need, location or private search history. */
@@ -160,12 +232,13 @@ export function qualifyProjectRequest(result: ProjectSearchResult, options: Qual
   const title = typeof result.title === 'string' ? result.title.trim() : '';
   if (content.length < 80 || content.length > 60_000 || !title || title.length > 300) return rejected('missing_content');
   const url = new URL(sourceUrl);
-  if (/\/(?:blog|articles?|guides?|tutorials?|case-studies|portfolio|director(?:y|ies))(?:\/|$)/i.test(url.pathname) || articleTitle.test(title) || supplier.test(content)) return rejected('supplier_marketing');
-  if (employment.test(`${title}\n${content}`)) return rejected('employment');
+  const requestText = requestExcerpt(content);
+  const primaryBody = primaryRequestBody(content, requestText);
+  if (/\/(?:blog|articles?|guides?|tutorials?|case-studies|portfolio|director(?:y|ies))(?:\/|$)/i.test(url.pathname) || articleTitle.test(title) || supplier.test(`${title}\n${primaryBody}`)) return rejected('supplier_marketing');
+  if (employment.test(`${title}\n${primaryBody}`)) return rejected('employment');
   if (/\/(?:archive|archives|archived)(?:\/|$)/i.test(url.pathname) || archived.test(title)) return rejected('closed');
   if (closed.test(`${title}\n${content}`) || /^(?:closed|cancelled|canceled|awarded|expired|withdrawn)\b/i.test(title)) return rejected('closed');
   if (notSoliciting.test(content)) return rejected('not_buyer_request');
-  const requestText = requestExcerpt(content);
   if (!requestText) return rejected('not_buyer_request');
   const service = detectService(requestText);
   if (!service || (service === 'website_and_application'
@@ -179,13 +252,15 @@ export function qualifyProjectRequest(result: ProjectSearchResult, options: Qual
   const now = options.now?.getTime() ?? Date.now();
   const today = new Date(now); today.setUTCHours(0, 0, 0, 0);
   if (!Number.isFinite(now) || !Number.isInteger(options.maxAgeDays) || options.maxAgeDays < 1 || options.maxAgeDays > 90 ||
-    publication.time > today.getTime() || now - publication.time > options.maxAgeDays * 86400_000) return rejected('stale');
+    publication.time > today.getTime() || (publication.instant !== null && publication.instant > now) ||
+    now - publication.time > options.maxAgeDays * 86400_000) return rejected('stale');
 
   const deadlines = labelledDates(content, deadlineLabel);
   if (deadlines === null) return rejected('expired');
-  const deadline = deadlines.length ? [...deadlines].sort((a, b) => a.time - b.time)[0] : null;
-  const deadlineTime = deadline ? deadline.time + 86400_000 - 1 : null;
-  if (deadlineTime !== null && (deadlineTime < now || deadlineTime < publication.time)) return rejected('expired');
+  const cutoff = (value: { time: number; instant: number | null }) => value.instant ?? value.time + 86400_000 - 1;
+  const deadline = deadlines.length ? [...deadlines].sort((a, b) => cutoff(a) - cutoff(b))[0] : null;
+  const deadlineTime = deadline ? cutoff(deadline) : null;
+  if (deadlineTime !== null && (deadlineTime < now || deadlineTime < (publication.instant ?? publication.time))) return rejected('expired');
   const country = buyerCountry(content);
   if (!country) return rejected('country_unknown');
   if (country.code === 'IN' || !options.countries.includes(country.code)) return rejected('country_excluded');

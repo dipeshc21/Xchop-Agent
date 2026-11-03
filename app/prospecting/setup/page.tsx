@@ -13,6 +13,19 @@ export default async function ProspectingSetupPage() {
     <Link href="/prospecting" style={{ display: 'inline-flex', gap: 7, alignItems: 'center', fontSize: 12 }}><ArrowLeft size={15} /> Back to discovery</Link>
     <div className="eyebrow" style={{ marginTop: 30 }}>PUBLIC PROJECT REQUESTS · SETUP</div>
     <h1>Find published website and application requests.</h1>
+    <section className="panel" id="discovery-repair">
+      <h2>Discovery stopped or saved no requests? Apply the reliability repair</h2>
+      <p>The earlier request filters rejected valid publication dates on separate lines and deadlines containing a time. Migration 008 repairs the database checks and schedules a retry within an hour after a temporary provider outage. It preserves records, targeting, daily limits, and your current on/off choice.</p>
+      <ol>
+        <li>Deploy the latest GitHub version. In your existing Supabase project open <b>SQL Editor → New query</b>, use <b>Copy discovery-repair SQL</b> below, paste, and click <b>Run</b>. Migration 006 must already be installed. Run 008 after 007 if you use the optional contact update; if you add 007 later, run 008 again afterwards.</li>
+        <li>Refresh <Link href="/prospecting">Lead discovery</Link>. Confirm the repair is installed and all connection checks are ready. In particular, public project-request discovery needs <code>TAVILY_API_KEY</code> in Vercel Production; an earlier Hunter key cannot replace it.</li>
+        <li>If discovery is <b>Paused</b>, review your targeting, click <b>Save targeting → Start automatic discovery</b>. The earlier migration 006 deliberately paused company discovery; this repair does not silently switch it back on.</li>
+        <li>Click <b>Run discovery now</b> and inspect <b>Run history</b>. Check the actual completed time, pages reviewed, requests saved, and any rejection or provider error. If work stays queued or a search is overdue, check the hourly Inngest function and endpoint below.</li>
+      </ol>
+      <ProspectingSetupActions migration="008_discovery_reliability.sql" />
+      <p>Paste SQL into Supabase, not a terminal command. Do not rerun 005 or 006 for this repair. Migration 008 is safe to repeat.</p>
+      <p>Each run now covers up to four country/service queries, sharing your saved total-results limit and daily API cap. Default targeting covers both countries and both service terms in one daily run. The app also rotates procurement and direct buyer-request wording. A verified daily search can still save zero results when no new suitable request is published.</p>
+    </section>
     <section className="panel">
       <h2>Already using project requests? Add published contact details</h2>
       <p>Contact names, emails, roles, and websites remain visible above the source fields. Existing contacts are preserved. The layout correction needs no database change.</p>

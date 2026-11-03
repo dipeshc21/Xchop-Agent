@@ -47,11 +47,12 @@ function fixture() {
     persistedUrls: new Set<string>(),
     persistOverride: null as ProjectPersistResult | null,
     finishStatus: '', finishThrows: false, providerPauses: false,
+    searchIndex: 0, cursors: {} as Record<string, number>, nextSearchIndex: -1, nextCursors: {} as Record<string, number>,
   };
   const repository: ProjectDiscoveryRepository = {
     async claim(_owner, _run, claimToken) {
       return state.claimed && !state.finished ? {
-        config: state.config, config_version: 1, search_index: 0, cursors: {}, claim_token: claimToken,
+        config: state.config, config_version: 1, search_index: state.searchIndex, cursors: state.cursors, claim_token: claimToken,
         run: { id: runId, owner_id: ownerId, status: 'running', request_count: state.ledger.size },
       } as ClaimedRun : null;
     },
@@ -82,8 +83,9 @@ function fixture() {
       state.persistedUrls.add(payload.evidence.sourceUrl); state.persisted.push(payload);
       return { status: 'saved', request_id: `fixture-request-${state.persisted.length}` };
     },
-    async finish(_owner, _run, _token, status) {
+    async finish(_owner, _run, _token, status, _counts, _message, _code, nextIndex, cursors) {
       state.finishStatus = status;
+      state.nextSearchIndex = nextIndex ?? -1; state.nextCursors = cursors ?? {};
       if (state.finishThrows) { state.finishThrows = false; throw new Error('Fixture completion unavailable'); }
       state.finished = true; return true;
     },
@@ -311,4 +313,65 @@ test('search query targets explicit buyer requests and does not pretend to captu
   assert.ok(query.length <= 400);
   assert.throws(() => buildProjectSearchQuery('IN', 'website development'));
   assert.throws(() => buildProjectSearchQuery('US', 'a'));
+  assert.ok(!query.includes('"website development"'), 'Generic development targeting must also find redesign, WordPress and Shopify requests.');
+  assert.match(query, /WordPress OR Shopify/);
+  assert.match(buildProjectSearchQuery('US', 'website development', 1), /looking for/);
+});
+
+test('one run covers all four default country/service combinations inside its total result limit', async () => {
+  const { state, dependencies } = fixture();
+  state.config.countries = ['US', 'GB']; state.config.keywords = ['website development', 'application development'];
+  const searches: { query: string; limit: number; maxAgeDays: number }[] = [];
+  const result = await runProjectDiscovery(input, step, { ...dependencies, provider: { async search(request) {
+    searches.push(request);
+    return { results: Array.from({ length: request.limit }, (_, index) => project(`https://procurement.buyerboard.org/notices/query-${searches.length}-${index}`)) };
+  } } });
+  assert.equal(result.status, 'completed'); assert.equal(searches.length, 4);
+  assert.equal(new Set(searches.map(search => search.query)).size, 4);
+  assert.equal(searches.filter(search => search.query.includes('"United States"')).length, 2);
+  assert.equal(searches.filter(search => search.query.includes('"United Kingdom"')).length, 2);
+  assert.equal(searches.reduce((sum, search) => sum + search.limit, 0), state.config.companiesPerRun);
+  assert.equal(result.companiesFound, state.config.companiesPerRun);
+  assert.equal(result.leadsSaved, state.config.companiesPerRun);
+  assert.equal(result.requestsUsed, 4); assert.equal(state.ledger.size, 4);
+  assert.equal(state.nextSearchIndex, 0); assert.equal(state.nextCursors.publicQueryRound, 1);
+  assert.match(result.message, /4 queries/);
+});
+
+test('coverage rotates wording and partitions without exceeding a small per-run review limit', async () => {
+  const { state, dependencies } = fixture();
+  state.config.countries = ['US', 'GB']; state.config.keywords = ['website development', 'application development'];
+  state.config.companiesPerRun = 3; state.searchIndex = 3; state.cursors = { publicQueryRound: 1 };
+  const searches: { query: string; limit: number }[] = [];
+  const result = await runProjectDiscovery(input, step, { ...dependencies, provider: { async search(request) {
+    searches.push(request); return { results: [project(`https://procurement.buyerboard.org/notices/round-${searches.length}`)] };
+  } } });
+  assert.equal(searches.length, 3); assert.ok(searches.every(search => search.limit === 1));
+  assert.match(searches[0].query, /looking for/); assert.match(searches[1].query, /request for proposals/);
+  assert.equal(result.companiesFound, 3); assert.equal(state.nextSearchIndex, 2);
+  assert.equal(state.nextCursors.publicQueryRound, 0);
+});
+
+test('a cap reached by an earlier query stops the remaining paid searches', async () => {
+  const { state, repository, dependencies } = fixture();
+  state.config.countries = ['US', 'GB'];
+  repository.capacity = async () => state.persisted.length ? { allowed: false, reason: 'daily_lead_limit' } : { allowed: true };
+  const result = await runProjectDiscovery(input, step, dependencies);
+  assert.equal(result.status, 'completed'); assert.equal(result.errorCode, 'daily_lead_limit');
+  assert.equal(result.leadsSaved, 1); assert.equal(state.calls.filter(call => call === 'search').length, 1);
+  assert.equal(state.nextSearchIndex, 1, 'A completed capped run advances past the query it already reviewed.');
+});
+
+test('multi-query recovery reuses every exact paid-query checkpoint rather than charging again', async () => {
+  const { state, dependencies } = fixture(); state.finishThrows = true;
+  state.config.countries = ['US', 'GB']; state.config.keywords = ['website development', 'application development'];
+  let paidSearches = 0;
+  const provider = { async search() {
+    paidSearches++; return { results: [project(`https://procurement.buyerboard.org/notices/checkpoint-${paidSearches}`)] };
+  } };
+  await assert.rejects(runProjectDiscovery(input, step, { ...dependencies, provider }), /Fixture completion/);
+  assert.equal(paidSearches, 4);
+  const result = await runProjectDiscovery({ ...input, executionId: 'multi-query-recovery' }, step, { ...dependencies, provider });
+  assert.equal(result.status, 'completed'); assert.equal(paidSearches, 4);
+  assert.equal(state.persisted.length, 4); assert.equal(state.ledger.size, 4);
 });

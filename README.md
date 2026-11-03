@@ -14,6 +14,21 @@ If migration 006 is already installed, the contact layout correction needs only 
 
 ## Upgrade your existing installation
 
+### Repair discovery after the project-request upgrade
+
+If discovery has stopped or saved no requests since the last update:
+
+1. Deploy the latest code. Open **Lead discovery → Setup guide → Copy discovery-repair SQL**. Paste the copied SQL into **Supabase → SQL Editor → New query**, then click **Run**. This is `008_discovery_reliability.sql`; it requires 006 and should run after optional 007. It is safe to repeat and preserves contacts, requests, targeting, daily limits, and your current enabled/paused choice. Do not rerun 005 or 006 for this repair. If you add 007 later, rerun 008 afterwards.
+2. Refresh **Lead discovery** and inspect its status and connection checks. The switch from Hunter company discovery to public project requests requires `TAVILY_API_KEY` in **Vercel Production**, followed by a redeploy. A Hunter key cannot replace it.
+3. If **Paused**, review and save targeting, then click **Start automatic discovery**. Migration 006 deliberately paused the previous mode. Run discovery now and inspect the actual completed run, pages reviewed, saved requests, and rejection/provider messages.
+4. If a run waits more than 90 minutes or its next due time is overdue, inspect **Inngest Production**. Confirm both app functions are synced from your hosted `/api/inngest` endpoint and the hourly schedule is executing. Configured keys alone do not establish scheduling.
+
+The repair accepts source-backed dates/countries in adjacent-line labels and Markdown tables, and deadlines with explicit time zones. It never substitutes search-engine date estimates for publication evidence or invents unknown countries/time zones. Temporary provider unavailability/rate limits are eligible for another due run within an hour; authentication and quota failures need their reported cause resolved.
+
+Each run searches up to four country/service combinations, sharing the existing total-results limit and daily API-request cap. Default targeting now covers its four combinations in one daily run rather than over four days. Query wording rotates between procurement and direct buyer requests and covers common redesign/WordPress/Shopify wording. Each query uses a separate durable paid-request checkpoint, so recovery does not repeat successful searches. A daily search cannot guarantee a newly published suitable project every day; the status distinguishes no execution from a completed search saving zero new requests.
+
+### First upgrade from company discovery
+
 Use this path if your app already signs in and you have saved contacts.
 
 1. Stop the development server with **Ctrl+C**. In your existing project terminal, run:
@@ -65,6 +80,7 @@ Skip project creation if you already have the app's Supabase project.
    | `005_automatic_prospecting.sql` | Durable runs, request budgets, and suppression foundation |
    | `006_project_requests.sql` | Public buyer-request discovery, evidence rules, and separate request records |
    | `007_project_contacts.sql` | Optional source-backed project contact names and email addresses |
+   | `008_discovery_reliability.sql` | Source-format repairs, transient-failure retry timing, and repair readiness |
 
 5. The in-app guide at `/prospecting/setup` provides **Copy project-request SQL** for migration 006. Earlier migration files are in `supabase/migrations`; the guide also links to the downloadable 005 prerequisite.
 

@@ -13,15 +13,18 @@ The app now qualifies published buyer requests for website/application work. It 
 - The durable worker uses owner binding, pause/version/lease checks, database-backed request reservations, daily limits, and duplicate source checks. It does not send messages or submit proposals.
 - Migration 006 preserves earlier contacts, pauses old company-discovery configuration, and adds separate owner-scoped project-request records. The downloadable SQL must match its reviewed migration exactly.
 - Optional additive migration 007 stores published project contacts and can fill missing contact fields on a same-source request without counting another lead. The existing list and worker continue to work before 007 is installed; it is not necessary to restore earlier contacts in the popup.
+- Additive migration 008 repairs source-format checks in both JavaScript and PostgreSQL: adjacent-line fields, Markdown tables, no-colon posting labels, ordinals, and explicitly zoned deadlines. Exact source evidence is retained. Unknown clocks/countries/dates remain unqualified. It preserves discovery's enabled/paused state and makes only transient `UNAVAILABLE`/`RATE_LIMIT` failures due again after one hour.
+- A run now covers up to four country/keyword partitions, sharing its configured total-results budget and existing daily API caps. Each query has an independent exact-query paid-request checkpoint. Query wording rotates between procurement and direct buyer requests. Provider-side engine-date filtering and forced live-page cache refresh no longer discard pages before source validation.
+- Owner-scoped execution health distinguishes paused/configuration/never-run/queued/stalled/overdue/failed/zero-new-results states from verified execution. Optional repair readiness cannot block existing migration-006 reads.
 
 ## Test evidence
 
 The complete project-request release passed these checks in the cloud workspace:
 
-- `npm test` — all 23 test files, including real embedded PostgreSQL execution through migration 007, request/source/contact binding, tenant isolation, caps, pause/retry handling, source qualification, visible contact identity above popup evidence, and byte-for-byte SQL downloads.
+- `npm test` — all 25 test files, including real embedded PostgreSQL execution through migration 008, JS/SQL date-layout parity, transient retry timing, unchanged targeting/pause state, request/source/contact binding, tenant isolation, multi-query caps/checkpoints/recovery, frozen-time execution health, source qualification, visible contact identity above popup evidence, and byte-for-byte SQL downloads.
 - `npm run typecheck` and `npm run build` — TypeScript and the Next.js production build.
 - `npm run smoke` and `npm run smoke:settings` — setup/authentication boundaries and authenticated settings access/save/reload even when dashboard setup is incomplete.
-- `npm run smoke:prospecting` — actual production HTTP routes with localhost fixtures: recent/unexpired owner requests, published contact reads and compatibility before migration 007, old lead links opening the new request list, request-only counters, exact migration 006 download, missing-schema handling, keyless pause, guarded enabling/queueing, safe research projection, suppression, and unsigned-job rejection. External provider requests are blocked and asserted absent.
+- `npm run smoke:prospecting` — actual production HTTP routes with localhost fixtures: recent/unexpired owner requests, published contact reads and compatibility before migration 007, optional repair readiness and execution health, old lead links opening the new request list, request-only counters, exact migration 006/008 downloads, missing-schema handling, keyless pause, guarded enabling/queueing, safe research projection, suppression, and unsigned-job rejection. External provider requests are blocked and asserted absent.
 
 Run release checks after changes:
 
@@ -41,6 +44,7 @@ Provider/worker tests inject fixtures. Database tests execute embedded PostgreSQ
 1. Update the code, run only missing migrations in order through 006, and add the actual `TAVILY_API_KEY` to the server. Keep the existing Supabase owner/admin and Inngest settings. Follow [README.md](README.md) or `/prospecting/setup`.
 2. Confirm old contacts remain unconfirmed and the new project-request list does not invent requirements for them. Review the new targeting and conservative limits, save, and enable discovery.
    Contact names and email addresses should be immediately visible above the inquiry evidence. To collect future published project contacts, run migration 007 once after 006; do not rerun 006 as part of that update. The optional SQL is available on `/prospecting/setup`.
+   For discovery reliability, run additive migration 008 after 006 and optional 007. It is safe to repeat and never switches discovery on or off. If 007 is added later, rerun 008. Refresh and check the repair notice, connection checks, and execution-health message before queuing a run.
 3. Queue one run. Inspect the Inngest execution and app run history until it finishes. A queued row alone is not proof that provider work happened. The search can consume credits even if zero pages qualify.
 4. For any saved result, open the original URL and verify the literal request, matching service, publication evidence, selected country, and deadline. Verify that the popup does not confuse the app's search query with the buyer's private search history.
 5. Check that a supplier page, job advertisement, undated request, closed/expired project, and missing-country result do not appear as qualified requests. A run saving zero requests can be correct.
@@ -57,3 +61,9 @@ Provider/worker tests inject fixtures. Database tests execute embedded PostgreSQ
 - Request caps count API calls rather than money. Check the provider's account usage and current credit rules.
 - Hunter contact verification and AI summaries do not establish buyer intent and are not required by the new worker.
 - Email outreach, replies, payments, and delivery remain later phases. Existing records are preserved; this update does not delete them automatically.
+
+## Investigation of the reported two-day discovery gap
+
+The code reproduction identified three release-induced ways to get no new requests: migration 006 paused existing company discovery and introduced a different server provider key; one default daily query spread four country/service combinations over four days; and both source validators rejected valid next-line/table dates and explicitly timed deadlines. Tavily's early date filter and forced cache freshness further reduced coverage. Regression tests now exercise those failures rather than only perfectly formatted source fixtures.
+
+The cloud workspace has no hosted Supabase, Tavily, or Inngest runtime credentials. GitHub reported the previous Vercel deployment successful; that is not proof that a worker ran. The hosted public endpoint could not be inspected from this environment. The owner's last-two-day run history, provider credits, actual server configuration, migration application, and first new production execution still need the live acceptance check. The repair must not be described as a verified hosted recovery until that execution is observed.

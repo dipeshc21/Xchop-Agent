@@ -21,9 +21,9 @@ test('project search uses fixed HTTPS endpoint, header authentication and explic
     const body = JSON.parse(String(init.body));
     assert.equal(body.query, input.query); assert.equal(body.max_results, 10);
     assert.equal(body.include_raw_content, 'text'); assert.equal(body.include_answer, false);
-    assert.equal(body.include_published_date, true); assert.equal(body.filter_by_published_date, true);
+    assert.equal(body.include_published_date, true); assert.equal(body.filter_by_published_date, false);
     assert.equal(body.auto_parameters, false); assert.equal(body.search_depth, 'basic');
-    assert.equal(body.safe_search, true); assert.equal(body.max_age_hours, 24);
+    assert.equal(body.safe_search, true); assert.equal(body.max_age_hours, undefined, 'Cache freshness must not force every source through live fetch.');
     assert.equal(body.country, undefined, 'Search country hints cannot become buyer-location facts.');
     assert.match(body.start_date, /^\d{4}-\d{2}-\d{2}$/); assert.match(body.end_date, /^\d{4}-\d{2}-\d{2}$/);
     assert.equal((Date.parse(body.end_date) - Date.parse(body.start_date)) / 86_400_000, 30);

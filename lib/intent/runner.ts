@@ -33,7 +33,7 @@ const messages: Record<string, string> = {
 const omissionLabels: Record<string, string> = {
   unsafe_source: 'unsafe source', missing_content: 'no source text', not_buyer_request: 'no buyer request',
   service_mismatch: 'other service', employment: 'employment', supplier_marketing: 'supplier marketing',
-  closed: 'closed request', missing_date: 'missing source date', stale: 'old source date', expired: 'expired deadline',
+  closed: 'closed request', missing_date: 'missing source date', stale: 'old source date', expired: 'expired or unclear deadline',
   country_unknown: 'no buyer country', country_excluded: 'outside target country', duplicate: 'duplicate request',
   evidence_required: 'missing evidence', service_excluded: 'other service', invalid: 'final validation',
 };
@@ -44,11 +44,19 @@ function safeErrorCode(error: unknown): string {
 function identity(value: string) { return createHash('sha256').update(value).digest('hex'); }
 
 /** This is the app's search query, never a record of the prospective buyer's search history. */
-export function buildProjectSearchQuery(countryCode: string, keyword: string) {
+export function buildProjectSearchQuery(countryCode: string, keyword: string, variant = 0) {
   const country = countryNames[countryCode];
   const phrase = keyword.replace(/[\u0000-\u001f\u007f"\\]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!country || phrase.length < 3 || phrase.length > 100) throw new StopProjectRun('invalid_input', 'failed', messages.invalid_input);
-  return `"${phrase}" ("request for proposals" OR "seeking an agency" OR "looking for a development team" OR tender) "${country}" -careers -salary -tutorial -course`;
+  const scope = /^(?:web(?:site)? development|website design|website redesign)$/i.test(phrase)
+    ? '(website OR "website redesign" OR WordPress OR Shopify) (development OR design OR build OR migration)'
+    : /^(?:application development|app development|mobile app development)$/i.test(phrase)
+      ? '("mobile app" OR "web application" OR "custom software" OR "booking application") (development OR build OR design)'
+      : phrase;
+  const intent = variant % 2 === 0
+    ? '("request for proposals" OR RFP OR tender OR "invitation to bid")'
+    : '("looking for" OR "seeking a developer" OR "need a website" OR "project brief")';
+  return `${scope} ${intent} "${country}" -careers -salary -tutorial -course`;
 }
 
 /**
@@ -72,6 +80,8 @@ export async function runProjectDiscovery(
   if (!claim) return summary;
   const ownerId = input.ownerId, runId = input.runId;
   let nextSearchIndex = claim.search_index ?? 0;
+  let nextCursors = { ...claim.cursors };
+  let searchesCompleted = 0;
   const omissions = new Map<string, number>();
   let contactsOmitted = 0;
   function omit(reason: string) {
@@ -83,10 +93,9 @@ export async function runProjectDiscovery(
     const state = await repository.active(ownerId, runId, token);
     if (!state.allowed) throw new StopProjectRun('paused', 'cancelled', 'Discovery was paused, its targeting changed, or this worker lease ended. No more search requests or saves were made.');
   }
-  async function search(query: string, call: () => Promise<ProjectSearchPage>) {
-    // One search is allowed per immutable run. Bind its recorded response to the
-    // exact app query, including recovery after a deployment changed query code.
-    const operation = 'public-project-search';
+  async function search(query: string, operation: string, call: () => Promise<ProjectSearchPage>) {
+    // Each bounded query has its own immutable paid-request checkpoint. A retry
+    // must match the exact query, including across deployments.
     const outcome = await step.run(`request:${operation}`, async (): Promise<
       { ok: true; page: ProjectSearchPage } | { ok: false; status: 'failed' | 'cancelled' | 'completed'; code: string; message: string }
     > => {
@@ -155,55 +164,77 @@ export async function runProjectDiscovery(
     }
     const partitions = config.countries.flatMap(countryCode => config.keywords.map(keyword => ({ countryCode, keyword })));
     const partitionIndex = Math.max(0, claim.search_index ?? 0) % partitions.length;
-    const partition = partitions[partitionIndex];
-    const query = buildProjectSearchQuery(partition.countryCode, partition.keyword);
+    const searchCount = Math.min(4, partitions.length, config.companiesPerRun);
+    const queryRound = Number.isSafeInteger(claim.cursors.publicQueryRound) ? claim.cursors.publicQueryRound % 2 : 0;
     const provider = dependencies.provider ?? new TavilyClient(process.env.TAVILY_API_KEY?.trim() ?? '');
-    const page = await search(query, () => provider.search({ query, limit: config.companiesPerRun, maxAgeDays: config.maxAgeDays }));
     const qualify = dependencies.qualify ?? qualifyProjectRequest;
     const seen = new Set<string>();
-    for (const result of page.results.slice(0, config.companiesPerRun)) {
+    let reviewed = 0;
+    for (let searchSlot = 0; searchSlot < searchCount && reviewed < config.companiesPerRun; searchSlot++) {
       await active();
-      const sourceUrl = normalizeProjectUrl(result.url);
-      if (!sourceUrl) { omit('unsafe_source'); continue; }
-      if (seen.has(sourceUrl)) { omit('duplicate'); continue; }
-      seen.add(sourceUrl);
-      summary.companiesFound++;
-      await mark(sourceUrl, 'processing');
-      const qualification = await step.run(`qualify:${identity(sourceUrl)}`, async () => qualify(result, {
-        countries: config.countries, services: config.services, maxAgeDays: config.maxAgeDays,
-      }));
-      if (!qualification.qualified) {
-        await mark(sourceUrl, 'rejected', qualification.reason);
-        omit(qualification.reason); continue;
+      if (searchSlot > 0) {
+        const remainingCapacity = await repository.capacity(ownerId, runId, token);
+        if (!remainingCapacity.allowed) {
+          if (remainingCapacity.reason === 'daily_lead_limit') throw new StopProjectRun('daily_lead_limit', 'completed', 'The daily saved-request cap was reached. No additional project search was made.');
+          if (remainingCapacity.reason === 'daily_request_limit') throw new StopProjectRun('daily_request_limit', 'completed', 'The daily API-request cap was reached. No additional project search was made.');
+          throw new StopProjectRun('paused', 'cancelled', 'Project discovery was paused or this worker lease ended.');
+        }
       }
-      // The qualifier must bind the extracted quote and origin to the same canonical result.
-      if (qualification.evidence.sourceUrl !== sourceUrl || !result.rawContent.includes(qualification.evidence.requestText)) {
-        await mark(sourceUrl, 'rejected', 'evidence_required'); omit('evidence_required'); continue;
-      }
-      await active();
-      const contact = contactStorage ? extractProjectContact(result.rawContent, sourceUrl) : null;
-      const payload = { evidence: qualification.evidence, sourceText: result.rawContent, discoveryQuery: query,
-        ...(contact && (contact.contactName || contact.contactEmail) ? { contact } : {}) };
-      let saved = await step.run(`save:${identity(sourceUrl)}`, () => repository.persist(ownerId, runId, token, payload));
-      if (saved.status === 'contact_evidence_required' && payload.contact) {
-        // A contact is optional. Never discard a valid project or invent an email
-        // when source attribution for the contact is incomplete.
+      const index = partitionIndex + searchSlot;
+      const partition = partitions[index % partitions.length];
+      const round = (queryRound + Math.floor(index / partitions.length)) % 2;
+      const query = buildProjectSearchQuery(partition.countryCode, partition.keyword, round);
+      const limit = Math.ceil((config.companiesPerRun - reviewed) / (searchCount - searchSlot));
+      const operation = searchSlot === 0 ? 'public-project-search' : `public-project-search:${searchSlot}`;
+      const page = await search(query, operation, () => provider.search({ query, limit, maxAgeDays: config.maxAgeDays }));
+      searchesCompleted++;
+      nextSearchIndex = (index + 1) % partitions.length;
+      nextCursors = { ...claim.cursors, publicQueryRound: (queryRound + Math.floor((index + 1) / partitions.length)) % 2 };
+      const candidates = page.results.slice(0, limit);
+      reviewed += candidates.length;
+      for (const result of candidates) {
         await active();
-        saved = await step.run(`save-without-contact:${identity(sourceUrl)}`, () => repository.persist(ownerId, runId, token, {
-          evidence: qualification.evidence, sourceText: result.rawContent, discoveryQuery: query,
+        const sourceUrl = normalizeProjectUrl(result.url);
+        if (!sourceUrl) { omit('unsafe_source'); continue; }
+        if (seen.has(sourceUrl)) { omit('duplicate'); continue; }
+        seen.add(sourceUrl);
+        summary.companiesFound++;
+        await mark(sourceUrl, 'processing');
+        const qualification = await step.run(`qualify:${identity(sourceUrl)}`, async () => qualify(result, {
+          countries: config.countries, services: config.services, maxAgeDays: config.maxAgeDays,
         }));
-        contactsOmitted++;
+        if (!qualification.qualified) {
+          await mark(sourceUrl, 'rejected', qualification.reason);
+          omit(qualification.reason); continue;
+        }
+        // The qualifier must bind the extracted quote and origin to the same canonical result.
+        if (qualification.evidence.sourceUrl !== sourceUrl || !result.rawContent.includes(qualification.evidence.requestText)) {
+          await mark(sourceUrl, 'rejected', 'evidence_required'); omit('evidence_required'); continue;
+        }
+        await active();
+        const contact = contactStorage ? extractProjectContact(result.rawContent, sourceUrl) : null;
+        const payload = { evidence: qualification.evidence, sourceText: result.rawContent, discoveryQuery: query,
+          ...(contact && (contact.contactName || contact.contactEmail) ? { contact } : {}) };
+        let saved = await step.run(`save:${identity(sourceUrl)}`, () => repository.persist(ownerId, runId, token, payload));
+        if (saved.status === 'contact_evidence_required' && payload.contact) {
+          // A contact is optional. Never discard a valid project or invent an email
+          // when source attribution for the contact is incomplete.
+          await active();
+          saved = await step.run(`save-without-contact:${identity(sourceUrl)}`, () => repository.persist(ownerId, runId, token, {
+            evidence: qualification.evidence, sourceText: result.rawContent, discoveryQuery: query,
+          }));
+          contactsOmitted++;
+        }
+        if (saved.status === 'paused') throw new StopProjectRun('paused', 'cancelled', 'Project discovery was paused before saving a request.');
+        if (saved.status === 'daily_limit') throw new StopProjectRun('daily_lead_limit', 'completed', 'The daily saved-request cap was reached. Remaining search results were not saved.');
+        if (saved.status === 'saved') { summary.leadsSaved++; await mark(sourceUrl, 'saved'); }
+        else { await mark(sourceUrl, 'rejected', saved.status); omit(saved.status); }
       }
-      if (saved.status === 'paused') throw new StopProjectRun('paused', 'cancelled', 'Project discovery was paused before saving a request.');
-      if (saved.status === 'daily_limit') throw new StopProjectRun('daily_lead_limit', 'completed', 'The daily saved-request cap was reached. Remaining search results were not saved.');
-      if (saved.status === 'saved') { summary.leadsSaved++; await mark(sourceUrl, 'saved'); }
-      else { await mark(sourceUrl, 'rejected', saved.status); omit(saved.status); }
     }
     await active();
-    nextSearchIndex = (partitionIndex + 1) % partitions.length;
     summary.status = 'completed';
     const counts = [...omissions].map(([reason, count]) => `${omissionLabels[reason]}: ${count}`).join('; ');
-    summary.message = `Public project-request search finished.${counts ? ` Omitted — ${counts}.` : ''} Saved requests require literal development, date, and country evidence. Review the original request's availability before responding.`.slice(0, 500);
+    summary.message = `Public project-request search finished: ${searchesCompleted} ${searchesCompleted === 1 ? 'query' : 'queries'}, ${summary.companiesFound} unique pages, ${summary.leadsSaved} saved.${counts ? ` Omitted — ${counts}.` : ''} Review each original request before responding.`.slice(0, 500);
     if (contactsOmitted) summary.message = `${summary.message.slice(0, 390)} Published contact evidence was incomplete for ${contactsOmitted} requests; use their original platform.`.slice(0, 500);
   } catch (error) {
     summary.status = error instanceof StopProjectRun ? error.status : 'failed';
@@ -214,6 +245,6 @@ export async function runProjectDiscovery(
   // rows. Browser run history reads those values, not the checkpoint replay counters.
   await repository.finish(ownerId, runId, token, summary.status,
     { companies_found: summary.companiesFound, skipped_count: summary.skippedCount },
-    summary.message, summary.errorCode, nextSearchIndex, {});
+    summary.message, summary.errorCode, nextSearchIndex, nextCursors);
   return summary;
 }

@@ -108,7 +108,10 @@ export class TavilyClient {
     const body = {
       query: input.query.trim(), topic: 'general', search_depth: 'basic', max_results: input.limit,
       start_date: date(new Date(now.getTime() - input.maxAgeDays * 86_400_000)), end_date: date(now),
-      include_published_date: true, filter_by_published_date: true, max_age_hours: 24,
+      // The engine may not detect a date that is stated in the actual notice.
+      // Qualification checks the source date itself. Do not discard such pages
+      // here or require a live re-fetch of every cached result.
+      include_published_date: true, filter_by_published_date: false,
       include_raw_content: 'text', include_answer: false, include_images: false,
       auto_parameters: false, safe_search: true, include_usage: true,
     };

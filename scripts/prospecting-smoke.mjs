@@ -43,6 +43,7 @@ const user = {
 let config = { ...defaultProspectingConfig, lawfulBasis: 'HTTP fixture basis for reviewing relevant business prospects.' };
 let migrationMissing = false;
 let contactMigrationMissing = false;
+let reliabilityMigrationMissing = false;
 const suppressionEntries = [{ id: 'suppression-fixture', email: 'blocked@example.test', reason: 'do-not-contact', created_at: '2026-01-01T00:00:00Z' }];
 const requests = [];
 const mock = createServer(async (request, response) => {
@@ -66,6 +67,11 @@ const mock = createServer(async (request, response) => {
   }
   if (request.method === 'POST' && url.pathname === '/rest/v1/rpc/project_discovery_readiness') {
     reply({ schema_version: 6 }); return;
+  }
+  if (request.method === 'POST' && url.pathname === '/rest/v1/rpc/project_discovery_reliability_readiness') {
+    if (reliabilityMigrationMissing) reply({ code: 'PGRST202', message: 'MOCK_PRIVATE_DATABASE_DETAIL_MUST_NOT_LEAK' }, 404);
+    else reply({ schema_version: 8 });
+    return;
   }
   if (request.method === 'GET' && url.pathname === '/rest/v1/project_requests') {
     assert.ok(url.searchParams.get('published_at')?.startsWith('gte.'), 'Only recent requests should be listed.');
@@ -179,9 +185,13 @@ globalThis.fetch = function(input, init) {
   assert.equal(guide.status, 200);
   const guideHtml = await guide.text();
   assert.match(guideHtml, /Tavily/); assert.match(guideHtml, /Inngest/);
+  assert.match(guideHtml, /Copy discovery-repair SQL/);
   const sql = await fetch(`${origin}/migrations/006_project_requests.sql`);
   assert.equal(sql.status, 200);
   assert.ok((await sql.text()) === (await readFile(new URL('../supabase/migrations/006_project_requests.sql', import.meta.url), 'utf8')), 'Public copy SQL must match the reviewed migration exactly.');
+  const repairSql = await fetch(`${origin}/migrations/008_discovery_reliability.sql`);
+  assert.equal(repairSql.status, 200);
+  assert.equal(await repairSql.text(), await readFile(new URL('../supabase/migrations/008_discovery_reliability.sql', import.meta.url), 'utf8'));
   const signedOut = await fetch(`${origin}/prospecting`, { redirect: 'manual' });
   assert.equal(signedOut.status, 307);
   assert.equal(new URL(signedOut.headers.get('location'), origin).pathname, '/login');
@@ -197,6 +207,14 @@ globalThis.fetch = function(input, init) {
   assert.equal(status.migrationReady, true); assert.equal(status.enabled, false); assert.equal(status.readiness.ready, false);
   assert.deepEqual(status.usage, { requestsToday: 12, leadsToday: 3, dayStart: '2026-01-01T00:00:00Z' });
   assert.equal(status.runs[0].leads_saved, 3); assert.equal(status.runs[0].id, runId);
+  assert.equal(status.repairReady, true); assert.equal(status.health.code, 'paused');
+  reliabilityMigrationMissing = true;
+  const unrepairedResponse = await fetch(`${origin}/api/prospecting`, { headers });
+  assert.equal(unrepairedResponse.status, 200, 'The repair probe must not block existing discovery reads.');
+  const unrepaired = await unrepairedResponse.json();
+  assert.equal(unrepaired.repairReady, false); assert.equal(unrepaired.migrationReady, true);
+  assert.ok(!JSON.stringify(unrepaired).includes('MOCK_PRIVATE_DATABASE_DETAIL'));
+  reliabilityMigrationMissing = false;
   assert.ok(!JSON.stringify(status).includes(accessToken)); assert.ok(!JSON.stringify(status).includes('claim_token'));
   const inquiriesPage = await fetch(`${origin}/inquiries`, { headers, redirect: 'manual' });
   assert.equal(inquiriesPage.status, 200);

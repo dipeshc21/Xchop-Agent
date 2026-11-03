@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-for (const filename of ['005_automatic_prospecting.sql', '006_project_requests.sql', '007_project_contacts.sql']) {
+for (const filename of ['005_automatic_prospecting.sql', '006_project_requests.sql', '007_project_contacts.sql', '008_discovery_reliability.sql']) {
   test(`the downloadable ${filename} exactly matches the reviewed migration`, async () => {
     const [migration, downloadable] = await Promise.all([
       readFile(`supabase/migrations/${filename}`),

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { defaultProspectingConfig, prospectingConfigSchema } from '@/lib/prospecting/types';
 import { getProspectingReadiness } from '@/lib/prospecting/server-config';
+import { discoveryHealth } from '@/lib/prospecting/health';
 import { discoveryDatabaseError, discoverySession, migrationMessage, missingMigration, readSmallJson, runColumns } from './support';
 
 export const dynamic = 'force-dynamic';
@@ -22,10 +23,15 @@ export async function GET() {
       }, { headers: { 'Cache-Control': 'private, no-store' } });
     }
     if (migration.data?.schema_version !== 6) return discoveryDatabaseError(null);
-    const [settings, runs, usage] = await Promise.all([
+    const [settings, runs, usage, repair] = await Promise.all([
       db.from('prospecting_settings').select('data,next_run_at').eq('owner_id', user.id).maybeSingle(),
       db.from('prospecting_runs').select(runColumns).eq('owner_id', user.id).eq('config_snapshot->>discoveryMode', 'project_requests').order('created_at', { ascending: false }).limit(30),
       db.rpc('prospecting_usage'),
+      // This additive repair check must not make migration-006 reads unavailable.
+      (async () => {
+        try { return await db.rpc('project_discovery_reliability_readiness'); }
+        catch { return { data: null, error: { code: 'REPAIR_CHECK_UNAVAILABLE' } }; }
+      })(),
     ]);
     const failures = [settings.error, runs.error, usage.error].filter(Boolean);
     if (failures.length) {
@@ -43,10 +49,15 @@ export async function GET() {
     if (!parsed.success || !usage.data || !Number.isSafeInteger(usage.data.requests) || !Number.isSafeInteger(usage.data.project_requests_saved)) {
       return NextResponse.json({ error: 'Project-request settings or usage could not be read. Check database migration 006 and refresh.' }, { status: 503 });
     }
+    const readiness = getProspectingReadiness(user.id, parsed.data);
+    const nextRunAt = settings.data?.next_run_at ?? null;
+    const repairReady = !repair.error && repair.data?.schema_version === 8;
     return NextResponse.json({
       config: parsed.data, enabled: parsed.data.enabled, migrationReady: true,
-      readiness: getProspectingReadiness(user.id, parsed.data),
-      runs: runs.data ?? [], nextRunAt: settings.data?.next_run_at ?? null,
+      readiness, repairReady,
+      repairStatus: repairReady ? 'ready' : !repair.error || missingMigration(repair.error) ? 'missing' : 'unavailable',
+      health: discoveryHealth({ config: parsed.data, readiness, runs: runs.data ?? [], nextRunAt }),
+      runs: runs.data ?? [], nextRunAt,
       usage: { requestsToday: usage.data.requests, leadsToday: usage.data.project_requests_saved, dayStart: usage.data.day_start },
     }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch { return discoveryDatabaseError(null); }

@@ -4,9 +4,10 @@ import { useState } from 'react';
 import { Check, Copy, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-export default function ProspectingSetupActions({ migration = '006_project_requests.sql' }: { migration?: '006_project_requests.sql' | '007_project_contacts.sql' }) {
+export default function ProspectingSetupActions({ migration = '006_project_requests.sql' }: { migration?: '006_project_requests.sql' | '007_project_contacts.sql' | '008_discovery_reliability.sql' }) {
   const migrationUrl = `/migrations/${migration}`;
   const contactUpdate = migration === '007_project_contacts.sql';
+  const discoveryRepair = migration === '008_discovery_reliability.sql';
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [message, setMessage] = useState('');
@@ -46,7 +47,7 @@ export default function ProspectingSetupActions({ migration = '006_project_reque
     <div className="setup-actions">
       <Button type="button" disabled={busy} onClick={copySql}>
         {copied ? <Check size={16} /> : <Copy size={16} />}
-        {busy ? 'Opening SQL…' : copied ? 'SQL copied' : contactUpdate ? 'Copy contact-update SQL' : 'Copy project-request SQL'}
+        {busy ? 'Opening SQL…' : copied ? 'SQL copied' : discoveryRepair ? 'Copy discovery-repair SQL' : contactUpdate ? 'Copy contact-update SQL' : 'Copy project-request SQL'}
       </Button>
       <a className="button outline" href={migrationUrl} target="_blank" rel="noreferrer">
         Open SQL file <ExternalLink size={15} />

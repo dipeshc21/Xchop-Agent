@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeProjectUrl, qualifyProjectRequest } from '../lib/intent/evidence';
+import { normalizeProjectUrl, parseProjectDateToken, qualifyProjectRequest } from '../lib/intent/evidence';
 import type { ProjectQualification, ProjectSearchResult } from '../lib/intent/types';
 
 // Source content and project identity below are isolated fixtures, never live leads.
@@ -128,4 +128,111 @@ test('bounded complete source text and literal CRLF paragraphs are handled witho
   assert.ok(content.includes(result.requestText)); assert.ok(content.includes(result.countryEvidence));
   assert.equal(qualifyProjectRequest(fixture({ rawContent: raw + 'x'.repeat(60_000) }), options).qualified, false);
   assert.equal(evidence(qualifyProjectRequest(fixture({ rawContent: raw.replace('Published: 2026-10-29', '**Published:** 2026-10-29') }), options)).publishedDateText, '2026-10-29');
+});
+
+test('public request metadata supports next-line labels, Markdown tables and prose-style posting labels', () => {
+  const cases = [
+    { published: '**Published**\n**October 29, 2026**', token: 'October 29, 2026', country: '**Buyer country**\n**United States**' },
+    { published: '## Published\n\n29th October 2026', token: '29th October 2026', country: '## Buyer country\n\nUnited States' },
+    { published: '| Published | October 29th, 2026 |', token: 'October 29th, 2026', country: '| Buyer country | United States |' },
+    { published: 'Posted October 29, 2026', token: 'October 29, 2026', country: 'Buyer country: United States' },
+    { published: 'Date issued: 29 October 2026', token: '29 October 2026', country: 'Buyer location:\nLondon, United Kingdom' },
+  ];
+  for (const item of cases) {
+    const content = raw.replace('Published: 2026-10-29', item.published).replace('Buyer country: United States', item.country);
+    const result = evidence(qualifyProjectRequest(fixture({ rawContent: content }), options));
+    assert.equal(result.publishedAt, '2026-10-29T00:00:00.000Z');
+    assert.equal(result.publishedDateText, item.token);
+    assert.equal(result.countryEvidence, item.country);
+    assert.equal(result.countryCode, item.country.includes('United Kingdom') ? 'GB' : 'US');
+    assert.ok(content.includes(result.countryEvidence) && content.includes(result.publishedDateText));
+  }
+  const crlf = raw.replace('Published: 2026-10-29', 'Published\nOctober 29, 2026').replace('Buyer country: United States', 'Buyer country\nUnited States').replaceAll('\n', '\r\n');
+  const result = evidence(qualifyProjectRequest(fixture({ rawContent: crlf }), options));
+  assert.equal(result.countryEvidence, 'Buyer country\r\nUnited States');
+  assert.ok(crlf.includes(result.countryEvidence));
+});
+
+test('explicit deadline clocks retain exact source tokens and known timezone offsets', () => {
+  const cases = [
+    ['20 November 2026 at 17:00 UTC', '2026-11-20T17:00:00.000Z'],
+    ['November 20th, 2026 at 5 PM GMT', '2026-11-20T17:00:00.000Z'],
+    ['2026-11-20T17:00:00Z', '2026-11-20T17:00:00.000Z'],
+    ['20 November 2026 17:00 CET', '2026-11-20T16:00:00.000Z'],
+    ['20 November 2026 17:00 CEST', '2026-11-20T15:00:00.000Z'],
+    ['20 November 2026 5:00 PM EST', '2026-11-20T22:00:00.000Z'],
+    ['20 November 2026 5:00 PM EDT', '2026-11-20T21:00:00.000Z'],
+    ['20 November 2026 5:00 PM PST', '2026-11-21T01:00:00.000Z'],
+    ['20 November 2026 5:00 PM PDT', '2026-11-21T00:00:00.000Z'],
+    ['20 November 2026 17:00 BST', '2026-11-20T16:00:00.000Z'],
+    ['2026-11-20T17:00:12.125+05:30', '2026-11-20T11:30:12.125Z'],
+    ['2026-11-20 17:00 UTC-0400', '2026-11-20T21:00:00.000Z'],
+    ['November 20, 2026, 12 AM UTC', '2026-11-20T00:00:00.000Z'],
+    ['November 20, 2026 at 12 PM UTC', '2026-11-20T12:00:00.000Z'],
+  ];
+  for (const [token, expected] of cases) {
+    const content = raw.replace('Submission deadline: 2026-11-20', `| Closes on | ${token} |`);
+    const result = evidence(qualifyProjectRequest(fixture({ rawContent: content }), options));
+    assert.equal(result.deadlineText, token);
+    assert.equal(result.deadlineAt, expected);
+    assert.ok(content.includes(result.deadlineText!));
+    const parsed = parseProjectDateToken(token);
+    assert.ok(parsed);
+    assert.equal(new Date(parsed.instant!).toISOString(), expected);
+  }
+  assert.deepEqual(parseProjectDateToken('20th November 2026'), { date: Date.parse('2026-11-20T00:00:00Z'), instant: null });
+});
+
+test('timed cutoffs expire at the recorded instant and multiple deadlines use the earliest cutoff', () => {
+  const due = raw.replace('2026-11-20', 'October 31, 2026 at 12:30 UTC');
+  const item = fixture({ rawContent: due });
+  assert.equal(evidence(qualifyProjectRequest(item, options)).deadlineAt, '2026-10-31T12:30:00.000Z');
+  assert.deepEqual(qualifyProjectRequest(item, { ...options, now: new Date('2026-10-31T12:30:00.001Z') }), { qualified: false, reason: 'expired' });
+  const multiple = raw + '\nResponse deadline\nNovember 19, 2026 at 11:30 PM PST';
+  const result = evidence(qualifyProjectRequest(fixture({ rawContent: multiple }), options));
+  assert.equal(result.deadlineText, 'November 19, 2026 at 11:30 PM PST');
+  assert.equal(result.deadlineAt, '2026-11-20T07:30:00.000Z');
+});
+
+test('ambiguous dates, unknown clock zones and invalid clocks cannot become invented cutoffs', () => {
+  for (const token of [
+    '11/20/2026', '20/11/2026', '20 November 2026 at 17:00', '20 November 2026 at 17:00 IST',
+    '20 November 2026 25:00 UTC', '20 November 2026 12:60 UTC', '20 November 2026 12:30:60 UTC',
+    '20 November 2026 0 PM UTC', '20 November 2026 13 PM UTC', '20 November 2026 12:00 +14:15',
+    '20 November 2026 12:00 -15:00', 'November 11st, 2026', '2026-02-30', '2026-11-20 | timezone not specified',
+  ]) {
+    assert.equal(parseProjectDateToken(token), null, token);
+    assert.deepEqual(qualifyProjectRequest(fixture({ rawContent: raw.replace('2026-11-20', token) }), options), { qualified: false, reason: 'expired' }, token);
+  }
+});
+
+test('timed posting tokens remain source-backed while earliest publication and future checks are preserved', () => {
+  const token = 'October 29th, 2026 at 5 PM EDT';
+  const content = raw.replace('Published: 2026-10-29', `Posted ${token}`);
+  const result = evidence(qualifyProjectRequest(fixture({ rawContent: content }), options));
+  assert.equal(result.publishedDateText, token);
+  assert.equal(result.publishedAt, '2026-10-29T00:00:00.000Z', 'Posting date normalization stays compatible with existing records.');
+  assert.deepEqual(qualifyProjectRequest(fixture({ rawContent: content + '\nPublished\nJanuary 1st, 2023' }), options), { qualified: false, reason: 'stale' });
+  assert.deepEqual(qualifyProjectRequest(fixture({ rawContent: raw.replace('2026-10-29', 'October 31, 2026 at 5 PM UTC') }), options), { qualified: false, reason: 'stale' });
+  const invalid = raw.replace('Published: 2026-10-29', 'Published\nOctober 29, 2026 at 5 PM (local time)');
+  assert.deepEqual(qualifyProjectRequest(fixture({ rawContent: invalid }), options), { qualified: false, reason: 'missing_date' });
+});
+
+test('unrelated explicit footer jobs and supplier promotions do not veto a literal project request', () => {
+  for (const footer of ['Related jobs\nFull-time Website Developer', '## Recommended jobs\nEmployment type: Full-time', '**You may also like**\nWe offer professional website development services.']) {
+    assert.equal(qualifyProjectRequest(fixture({ rawContent: raw + '\n\n' + footer }), options).qualified, true, footer);
+  }
+  assert.deepEqual(qualifyProjectRequest(fixture({ rawContent: raw + '\nEmployment type: Full-time\n\nRelated jobs\nOther roles' }), options), { qualified: false, reason: 'employment' });
+  assert.deepEqual(qualifyProjectRequest(fixture({ title: 'Full-time Website Developer', rawContent: raw + '\n\nRelated jobs\nOther roles' }), options), { qualified: false, reason: 'employment' });
+  assert.deepEqual(qualifyProjectRequest(fixture({ rawContent: raw + '\nWe offer custom website development services.\n\nRelated jobs\nOther roles' }), options), { qualified: false, reason: 'supplier_marketing' });
+});
+
+test('new metadata layouts still require unambiguous source-backed country and date facts', () => {
+  const withoutCountry = raw.replace('Buyer country: United States', 'The app searched for clients in United States.');
+  assert.deepEqual(qualifyProjectRequest(fixture({ rawContent: withoutCountry }), options), { qualified: false, reason: 'country_unknown' });
+  assert.deepEqual(qualifyProjectRequest(fixture({ rawContent: raw.replace('Buyer country: United States', '| Buyer country | United States and Canada |') }), options), { qualified: false, reason: 'country_unknown' });
+  assert.deepEqual(qualifyProjectRequest(fixture({ rawContent: raw.replace('Buyer country: United States', '| Buyer country | India |') }), options), { qualified: false, reason: 'country_excluded' });
+  assert.deepEqual(qualifyProjectRequest(fixture({ rawContent: raw.replace('Published: 2026-10-29', 'Last updated\nOctober 30, 2026') }), options), { qualified: false, reason: 'missing_date' });
+  const markupInsideDate = raw.replace('Published: 2026-10-29', 'Published: October **29**, 2026');
+  assert.deepEqual(qualifyProjectRequest(fixture({ rawContent: markupInsideDate }), options), { qualified: false, reason: 'missing_date' }, 'Normalizing markup cannot manufacture a date token absent from the literal source.');
 });
