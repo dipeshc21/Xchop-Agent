@@ -25,6 +25,7 @@ export default async function ProspectingSetupPage() {
       <ProspectingSetupActions migration="008_discovery_reliability.sql" />
       <p>Paste SQL into Supabase, not a terminal command. Do not rerun 005 or 006 for this repair. Migration 008 is safe to repeat.</p>
       <p>Each run now covers up to four country/service queries, sharing your saved total-results limit and daily API cap. Default targeting covers both countries and both service terms in one daily run. The app also rotates procurement and direct buyer-request wording. A verified daily search can still save zero results when no new suitable request is published.</p>
+      <p><b>Reading Run history:</b> a completed run with <b>no source text</b> found links whose pages could not be read. The worker tries Tavily&apos;s full-text retrieval within your existing daily cap before skipping them. The same Tavily key is used. New runs also preserve known provider errors and distinguish a response that could not be saved from an unfinished request. <b>API attempts</b> counts reserved attempts, including interrupted ones; it does not prove a successful response.</p>
     </section>
     <section className="panel">
       <h2>Already using project requests? Add published contact details</h2>

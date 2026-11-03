@@ -1,4 +1,5 @@
 import { publicSourceUrl } from '../prospecting/hunter';
+import { normalizeProjectUrl } from './evidence';
 import type { ProjectSearchPage, ProjectSearchResult } from './types';
 
 export type IntentProviderErrorCode = 'configuration' | 'authentication' | 'quota' | 'rate_limit' | 'invalid_input' | 'invalid_response' | 'unavailable';
@@ -35,12 +36,22 @@ const cleanText = (value: unknown, limit: number) => typeof value === 'string'
   : '';
 const dateHint = (value: unknown) => typeof value === 'string' && value.length <= 100 && Number.isFinite(Date.parse(value)) ? value : null;
 
+// Match the database checkpoint's secret-data guard before storing a page. Public
+// documentation can contain example credentials too: omit that whole source,
+// rather than editing its evidence or poisoning every other search result.
+const unsafeCheckpointText = (value: string) => /(?:api_key|apikey|access_token|authorization)=/i.test(value) ||
+  /"(?:api_?key|authorization|access_?token|secret|password)"[ \t\r\n]*:/i.test(value);
+const sourceText = (value: unknown) => typeof value === 'string'
+  ? value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim()
+  : '';
+
 function sourceLink(value: unknown) {
   const link = publicSourceUrl(value);
   if (!link) return null;
   const url = new URL(link);
   // Published page addresses should never carry access credentials into saved evidence.
   if ([...url.searchParams.keys()].some(key => /^(?:api[-_]?key|access[-_]?token|auth(?:orization)?|secret|password|token)$/i.test(key))) return null;
+  if (unsafeCheckpointText(url.href)) return null;
   return url.href;
 }
 
@@ -86,6 +97,7 @@ export type TavilyOptions = {
   timeoutMs?: number;
 };
 export type ProjectSearchInput = { query: string; limit: number; maxAgeDays: number };
+export type ProjectExtractInput = { urls: string[] };
 
 /** Searches public project requests. Returned text is evidence input, never proof of intent by itself. */
 export class TavilyClient {
@@ -115,6 +127,81 @@ export class TavilyClient {
       include_raw_content: 'text', include_answer: false, include_images: false,
       auto_parameters: false, safe_search: true, include_usage: true,
     };
+    const data = await this.request('search', body);
+    if (!Array.isArray(data.results) || data.results.length > input.limit) throw new IntentProviderError('invalid_response');
+    const results: ProjectSearchResult[] = [];
+    const seen = new Set<string>();
+    let contentCharacters = 0;
+    for (const value of data.results) {
+      const row = object(value);
+      const url = sourceLink(row.url);
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      // Never chop a request midway: that could hide a closed/expired status or
+      // change which statement qualifies as the buyer's current requirement.
+      const rawContent = sourceText(row.raw_content);
+      const title = cleanText(row.title, 300);
+      if (unsafeCheckpointText(rawContent) || unsafeCheckpointText(title) ||
+        rawContent.length > tavilyResponseLimits.perResultCharacters ||
+        contentCharacters + rawContent.length > tavilyResponseLimits.totalContentCharacters) continue;
+      contentCharacters += rawContent.length;
+      results.push({
+        title, url, rawContent,
+        // This is the engine's estimated publication/update date, not an authoritative request date.
+        publishedDate: dateHint(row.published_date),
+      });
+    }
+    return { results };
+  }
+
+  /** Full-source fallback for search results whose extraction is missing. This
+   * makes one provider request; durable reservation/recovery belongs to the runner. */
+  async extract(input: ProjectExtractInput): Promise<ProjectSearchPage> {
+    if (!input || !Array.isArray(input.urls) || input.urls.length < 1 || input.urls.length > 20) throw new IntentProviderError('invalid_input');
+    const requested = new Set<string>();
+    for (const value of input.urls) {
+      const url = typeof value === 'string' ? normalizeProjectUrl(value) : null;
+      if (!url || unsafeCheckpointText(url)) throw new IntentProviderError('invalid_input');
+      requested.add(url);
+    }
+    const data = await this.request('extract', {
+      urls: [...requested], extract_depth: 'basic', format: 'text',
+      timeout: Math.max(1, Math.min(10, this.timeoutMs / 1000)),
+      include_images: false, include_favicon: false, include_usage: true,
+      // No query/chunks option: a reranked excerpt could omit a closed status or
+      // the source's original date. Qualification requires the complete text.
+    });
+    if (!Array.isArray(data.results) || data.results.length > 20 ||
+      (data.failed_results !== undefined && (!Array.isArray(data.failed_results) || data.failed_results.length > 20))) {
+      throw new IntentProviderError('invalid_response');
+    }
+    const failed = new Set<string>();
+    for (const value of Array.isArray(data.failed_results) ? data.failed_results : []) {
+      const url = normalizeProjectUrl(object(value).url as string);
+      if (url && requested.has(url)) failed.add(url);
+    }
+    const results = new Map<string, ProjectSearchResult>();
+    const seen = new Set<string>();
+    let contentCharacters = 0;
+    for (const value of data.results) {
+      const row = object(value);
+      const url = typeof row.url === 'string' ? normalizeProjectUrl(row.url) : null;
+      if (!url || !requested.has(url) || failed.has(url)) continue;
+      if (seen.has(url)) { results.delete(url); failed.add(url); continue; }
+      seen.add(url);
+      const rawContent = sourceText(row.raw_content);
+      if (!rawContent || unsafeCheckpointText(rawContent) ||
+        rawContent.length > tavilyResponseLimits.perResultCharacters ||
+        contentCharacters + rawContent.length > tavilyResponseLimits.totalContentCharacters) continue;
+      contentCharacters += rawContent.length;
+      // Extract does not establish a title or publication date. The runner keeps
+      // the original search identity and qualifies only this exact URL's source.
+      results.set(url, { title: '', url, rawContent, publishedDate: null });
+    }
+    return { results: [...results.values()] };
+  }
+
+  private async request(endpoint: 'search' | 'extract', body: Record<string, unknown>): Promise<JsonObject> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
@@ -122,36 +209,14 @@ export class TavilyClient {
     });
     try {
       const operation = (async () => {
-        const response = await this.fetcher('https://api.tavily.com/search', {
+        const response = await this.fetcher(`https://api.tavily.com/${endpoint}`, {
           method: 'POST', headers: { Authorization: `Bearer ${this.key}`, 'Content-Type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify(body), signal: controller.signal, redirect: 'error', cache: 'no-store',
         });
         if (!response.ok) { await response.body?.cancel(); throw statusError(response.status); }
         const data = object(await readBoundedJson(response));
-        if (data.error || data.detail || !Array.isArray(data.results) || data.results.length > input.limit) throw new IntentProviderError('invalid_response');
-        const results: ProjectSearchResult[] = [];
-        const seen = new Set<string>();
-        let contentCharacters = 0;
-        for (const value of data.results) {
-          const row = object(value);
-          const url = sourceLink(row.url);
-          if (!url || seen.has(url)) continue;
-          seen.add(url);
-          // Never chop a request midway: that could hide a closed/expired status or
-          // change which statement qualifies as the buyer's current requirement.
-          const rawContent = typeof row.raw_content === 'string'
-            ? row.raw_content.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim()
-            : '';
-          if (rawContent.length > tavilyResponseLimits.perResultCharacters ||
-            contentCharacters + rawContent.length > tavilyResponseLimits.totalContentCharacters) continue;
-          contentCharacters += rawContent.length;
-          results.push({
-            title: cleanText(row.title, 300), url, rawContent,
-            // This is the engine's estimated publication/update date, not an authoritative request date.
-            publishedDate: dateHint(row.published_date),
-          });
-        }
-        return { results };
+        if (data.error || data.detail) throw new IntentProviderError('invalid_response');
+        return data;
       })();
       return await Promise.race([operation, timeout]);
     } catch (error) { throw error instanceof IntentProviderError ? error : new IntentProviderError('unavailable'); }

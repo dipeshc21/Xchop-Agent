@@ -9,6 +9,7 @@ export type ClaimedRun = {
 };
 export type Reservation = {
   status: 'reserved' | 'cached' | 'uncertain' | 'budget_exhausted' | 'paused';
+  state?: 'reserved' | 'completed' | 'failed' | 'inflight' | 'paused' | 'limit';
   result?: unknown; reason?: string;
 };
 export type PersistPayload = {
@@ -33,6 +34,14 @@ export class RepositoryError extends Error {
   readonly code = 'database';
   constructor() { super('Discovery could not save its progress. Check the database migration and worker configuration.'); }
 }
+export class RequestCheckpointError extends Error {
+  constructor(readonly code: 'checkpoint_rejected' | 'checkpoint_unavailable') {
+    super(code === 'checkpoint_rejected'
+      ? 'The search results did not pass the database content checks. This request was not repeated.'
+      : 'The app could not confirm that the search response was saved in the database. This request was not repeated. Check the Inngest step for the database error.');
+    this.name = 'RequestCheckpointError';
+  }
+}
 export function createProspectingRepository(client?: SupabaseClient): ProspectingRepository {
   const db = client ?? supabaseAdmin();
   async function rpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
@@ -48,7 +57,19 @@ export function createProspectingRepository(client?: SupabaseClient): Prospectin
     async claim(ownerId, runId, claimToken) { return rpc<ClaimedRun|null>('claim_prospecting_run', ownerArgs(ownerId, runId, claimToken)); },
     async active(ownerId, runId, claimToken) { return rpc('check_prospecting_run', ownerArgs(ownerId, runId, claimToken)); },
     async reserve(ownerId, runId, claimToken, operation, provider) { return rpc('reserve_prospecting_request', { ...ownerArgs(ownerId, runId, claimToken), p_operation: operation, p_provider: provider }); },
-    async complete(ownerId, runId, claimToken, operation, result, errorCode) { await rpc('complete_prospecting_request', { ...ownerArgs(ownerId, runId, claimToken), p_operation: operation, p_result: result, p_error_code: errorCode?.toUpperCase() ?? null }); },
+    async complete(ownerId, runId, claimToken, operation, result, errorCode) {
+      const args = { ...ownerArgs(ownerId, runId, claimToken), p_operation: operation, p_result: result, p_error_code: errorCode?.toUpperCase() ?? null };
+      let receipt;
+      try { receipt = await db.rpc('complete_prospecting_request', args); }
+      catch { throw new RequestCheckpointError('checkpoint_unavailable'); }
+      if (receipt.error) {
+        throw new RequestCheckpointError(receipt.error.message === 'PROSPECTING_UNSAFE_RESULT' ? 'checkpoint_rejected' : 'checkpoint_unavailable');
+      }
+      // An HTTP-success response can still mean the worker lost its claim or the
+      // operation was already in a different state. Never confirm a paid search
+      // unless PostgreSQL acknowledges the state this worker actually recorded.
+      if (receipt.data?.status !== (errorCode ? 'failed' : 'completed')) throw new RequestCheckpointError('checkpoint_unavailable');
+    },
     async candidate(ownerId, domain) { assertAutomationOwner(ownerId); const { data, error } = await db.from('prospecting_candidates').select('run_id,status').eq('owner_id', ownerId).eq('domain', domain).maybeSingle(); if (error) throw new RepositoryError(); return data; },
     async recordCandidate(ownerId, runId, claimToken, domain, status, reason) { return rpc('record_prospecting_candidate', { ...ownerArgs(ownerId, runId, claimToken), p_domain: domain, p_status: status, p_reason: reason ?? null }); },
     async suppressed(ownerId, email) { assertAutomationOwner(ownerId); const { data, error } = await db.from('suppression_list').select('id').eq('owner_id', ownerId).eq('email', email).limit(1); if (error) throw new RepositoryError(); return Boolean(data?.length); },

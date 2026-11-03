@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { runProjectDiscovery, buildProjectSearchQuery } from '../lib/intent/runner';
 import type { ProjectDiscoveryRepository, ProjectPersistPayload, ProjectPersistResult, ProjectRunCapacity } from '../lib/intent/repository';
 import { IntentProviderError } from '../lib/intent/tavily';
+import { RequestCheckpointError } from '../lib/prospecting/repository';
 import type { ProjectEvidence, ProjectSearchResult } from '../lib/intent/types';
 import type { ClaimedRun, Reservation } from '../lib/prospecting/repository';
 import type { DurableStep } from '../lib/prospecting/runner';
@@ -193,6 +194,108 @@ test('an uncertain prior paid search is never repeated', async () => {
   const result = await runProjectDiscovery(input, step, dependencies);
   assert.equal(result.status, 'failed'); assert.equal(result.errorCode, 'request_uncertain');
   assert.ok(!state.calls.includes('search')); assert.equal(state.persisted.length, 0);
+});
+
+test('a recorded provider failure keeps its real safe cause without repeating the request', async () => {
+  for (const code of ['UNAVAILABLE', 'AUTHENTICATION', 'QUOTA', 'RATE_LIMIT', 'INVALID_RESPONSE', 'INVALID_INPUT']) {
+    const { state, dependencies } = fixture();
+    state.reservation = { status: 'uncertain', state: 'failed', reason: code };
+    const result = await runProjectDiscovery(input, step, dependencies);
+    assert.equal(result.status, 'failed'); assert.equal(result.errorCode, code.toLowerCase());
+    assert.ok(!result.message.includes('has no recorded result'));
+    assert.equal(state.calls.includes('search'), false);
+  }
+  const { state, dependencies } = fixture();
+  state.reservation = { status: 'uncertain', state: 'failed', reason: 'private-provider-detail' };
+  const result = await runProjectDiscovery(input, step, dependencies);
+  assert.equal(result.errorCode, 'recorded_failure'); assert.ok(!result.message.includes('private-provider-detail'));
+});
+
+test('response-recording failures become precise durable outcomes instead of retrying a paid callback', async () => {
+  for (const code of ['checkpoint_rejected', 'checkpoint_unavailable'] as const) {
+    const { state, repository, dependencies } = fixture();
+    repository.complete = async () => { throw new RequestCheckpointError(code); };
+    const checkpoints = new Map<string, unknown>();
+    const durable: DurableStep = { async run(id, task) {
+      if (checkpoints.has(id)) return checkpoints.get(id) as Awaited<ReturnType<typeof task>>;
+      const value = await task(); checkpoints.set(id, structuredClone(value)); return value;
+    }, async sleep() {} };
+    state.finishThrows = true;
+    await assert.rejects(runProjectDiscovery(input, durable, dependencies), /Fixture completion/);
+    const result = await runProjectDiscovery(input, durable, dependencies);
+    assert.equal(result.status, 'failed'); assert.equal(result.errorCode, code);
+    assert.equal(state.calls.filter(call => call === 'search').length, 1);
+    assert.equal(state.persisted.length, 0); assert.ok(!result.message.includes('has no recorded result'));
+  }
+});
+
+test('missing page text is retrieved from the same source before qualification and keeps the original title', async () => {
+  const { state, dependencies } = fixture();
+  const missing = project('https://procurement.buyerboard.org/notices/no-search-text');
+  state.results = [project(), { ...missing, rawContent: '' }];
+  const extractedUrls: string[][] = [];
+  const provider = { ...dependencies.provider, async extract({ urls }: { urls: string[] }) {
+    extractedUrls.push(urls); return { results: [{ ...missing, title: '', publishedDate: null }] };
+  } };
+  const result = await runProjectDiscovery(input, step, { ...dependencies, provider });
+  assert.deepEqual(extractedUrls, [[missing.url]]); assert.equal(result.leadsSaved, 2); assert.equal(result.requestsUsed, 2);
+  assert.equal(state.ledger.size, 2); assert.equal(state.results[1].rawContent, '', 'The cached search response must not be mutated.');
+  assert.equal(state.persisted[1].evidence.title, missing.title); assert.match(result.message, /Full text recovered for 1 page/);
+});
+
+test('unrelated extracted pages cannot provide evidence for a missing source', async () => {
+  const { state, dependencies } = fixture(); state.results[0].rawContent = '';
+  const provider = { ...dependencies.provider, async extract() { return { results: [project('https://anotherbuyer.org/another-project')] }; } };
+  const result = await runProjectDiscovery(input, step, { ...dependencies, provider });
+  assert.equal(result.status, 'completed'); assert.equal(result.leadsSaved, 0); assert.equal(result.skippedCount, 1);
+  assert.match(result.message, /no source text: 1/);
+});
+
+test('valid full-text requests survive a separate source-retrieval failure', async () => {
+  const { state, dependencies } = fixture();
+  state.results.push({ ...project('https://procurement.buyerboard.org/notices/unreadable'), rawContent: '' });
+  let extractions = 0;
+  const provider = { ...dependencies.provider, async extract(): Promise<{ results: ProjectSearchResult[] }> { extractions++; throw new IntentProviderError('quota'); } };
+  const result = await runProjectDiscovery(input, step, { ...dependencies, provider });
+  assert.equal(result.status, 'failed'); assert.equal(result.errorCode, 'quota'); assert.equal(result.leadsSaved, 1);
+  assert.equal(extractions, 1); assert.match(result.message, /Before stopping: 2 pages reviewed, 1 saved/);
+});
+
+test('source retrieval respects the atomic request cap and still processes already-returned full text', async () => {
+  const { state, repository, dependencies } = fixture();
+  state.results.push({ ...project('https://procurement.buyerboard.org/notices/unreadable'), rawContent: '' });
+  const reserve = repository.reserve;
+  repository.reserve = async (...args) => args[3].endsWith(':extract') ? { status: 'budget_exhausted' } : reserve(...args);
+  let extractions = 0;
+  const provider = { ...dependencies.provider, async extract() { extractions++; return { results: [] }; } };
+  const result = await runProjectDiscovery(input, step, { ...dependencies, provider });
+  assert.equal(result.status, 'completed'); assert.equal(result.errorCode, 'daily_request_limit');
+  assert.equal(result.leadsSaved, 1); assert.equal(extractions, 0); assert.equal(state.ledger.size, 1);
+});
+
+test('replaying a cached search at the saved-request cap never buys new source retrieval', async () => {
+  const { state, dependencies } = fixture();
+  const source = { ...project(), rawContent: '' }; state.results = [source];
+  const query = buildProjectSearchQuery('US', 'website development');
+  state.ledger.set('public-project-search', { status: 'completed', result: { query, page: { results: [source] } } });
+  state.capacity = { allowed: false, reason: 'daily_lead_limit' };
+  let extractions = 0;
+  const provider = { ...dependencies.provider, async extract() { extractions++; return { results: [project()] }; } };
+  const result = await runProjectDiscovery(input, step, { ...dependencies, provider });
+  assert.equal(result.status, 'completed'); assert.equal(result.errorCode, 'daily_lead_limit');
+  assert.equal(extractions, 0); assert.equal(state.calls.includes('search'), false); assert.equal(state.ledger.size, 1);
+});
+
+test('recovery reuses both the search and source-retrieval checkpoints', async () => {
+  const { state, dependencies } = fixture();
+  const source = project(); state.results = [{ ...source, rawContent: '' }]; state.finishThrows = true;
+  let searches = 0, extractions = 0;
+  const provider = { async search() { searches++; return { results: state.results }; },
+    async extract() { extractions++; return { results: [{ ...source, title: '' }] }; } };
+  await assert.rejects(runProjectDiscovery(input, step, { ...dependencies, provider }), /Fixture completion/);
+  const result = await runProjectDiscovery({ ...input, executionId: 'source-retrieval-recovery' }, step, { ...dependencies, provider });
+  assert.equal(result.status, 'completed'); assert.equal(searches, 1); assert.equal(extractions, 1);
+  assert.equal(state.persisted.length, 1); assert.equal(state.ledger.size, 2);
 });
 
 test('a cached response for a different app query cannot be relabelled or cause another paid search', async () => {

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { RepositoryError } from '../prospecting/repository';
+import { RepositoryError, RequestCheckpointError } from '../prospecting/repository';
 import { assertAutomationOwner, getProspectingReadiness } from '../prospecting/server-config';
 import { countryNames, prospectingConfigSchema } from '../prospecting/types';
 import type { DurableStep, ProspectingSummary } from '../prospecting/runner';
@@ -9,7 +9,10 @@ import { createProjectDiscoveryRepository, type ProjectDiscoveryRepository } fro
 import { IntentProviderError, TavilyClient } from './tavily';
 import type { ProjectQualification, ProjectSearchPage, ProjectSearchResult } from './types';
 
-type ProjectSearchProvider = { search(input: { query: string; limit: number; maxAgeDays: number }): Promise<ProjectSearchPage> };
+type ProjectSearchProvider = {
+  search(input: { query: string; limit: number; maxAgeDays: number }): Promise<ProjectSearchPage>;
+  extract?(input: { urls: string[] }): Promise<ProjectSearchPage>;
+};
 type Dependencies = {
   repository?: ProjectDiscoveryRepository;
   provider?: ProjectSearchProvider;
@@ -29,6 +32,7 @@ const messages: Record<string, string> = {
   invalid_input: 'The project-request search could not be validated. Check the targeting settings.',
   database: 'Discovery could not safely save its progress. Check database migration 006 before running again.',
   request_uncertain: 'A search may have reached the provider but has no recorded result. It was not repeated automatically.',
+  recorded_failure: 'An earlier provider attempt failed. Its detailed cause was not recorded, so the paid request was not repeated. Check the Inngest execution.',
 };
 const omissionLabels: Record<string, string> = {
   unsafe_source: 'unsafe source', missing_content: 'no source text', not_buyer_request: 'no buyer request',
@@ -38,6 +42,7 @@ const omissionLabels: Record<string, string> = {
   evidence_required: 'missing evidence', service_excluded: 'other service', invalid: 'final validation',
 };
 function safeErrorCode(error: unknown): string {
+  if (error instanceof RequestCheckpointError) return error.code;
   if (error instanceof IntentProviderError && Object.hasOwn(messages, error.code)) return error.code;
   return error instanceof RepositoryError ? 'database' : 'unavailable';
 }
@@ -82,6 +87,7 @@ export async function runProjectDiscovery(
   let nextSearchIndex = claim.search_index ?? 0;
   let nextCursors = { ...claim.cursors };
   let searchesCompleted = 0;
+  let sourceTextsRecovered = 0;
   const omissions = new Map<string, number>();
   let contactsOmitted = 0;
   function omit(reason: string) {
@@ -111,6 +117,11 @@ export async function runProjectDiscovery(
         }
         if (reservation.status === 'paused') throw new StopProjectRun('paused', 'cancelled', 'Project discovery was paused or its targeting changed.');
         if (reservation.status === 'budget_exhausted') throw new StopProjectRun('daily_request_limit', 'completed', 'The daily API-request cap was reached. No additional project search was made.');
+        if (reservation.status === 'uncertain' && reservation.state === 'failed') {
+          const storedCode = reservation.reason?.toLowerCase() ?? '';
+          const knownCode = ['authentication', 'quota', 'rate_limit', 'unavailable', 'invalid_input', 'invalid_response'].includes(storedCode) ? storedCode : 'recorded_failure';
+          throw new StopProjectRun(knownCode, 'failed', messages[knownCode]);
+        }
         if (reservation.status !== 'reserved') throw new StopProjectRun('request_uncertain', 'failed', messages.request_uncertain);
         let page: ProjectSearchPage;
         try { page = await call(); }
@@ -125,6 +136,11 @@ export async function runProjectDiscovery(
         return { ok: true, page };
       } catch (error) {
         if (error instanceof StopProjectRun) return { ok: false, code: error.code, status: error.status, message: error.message };
+        // Record a precise terminal outcome inside the durable step. Throwing a
+        // database checkpoint error here makes the SDK retry the callback and
+        // replaces the real error with an unfinished-reservation warning.
+        if (error instanceof RequestCheckpointError) return { ok: false, code: error.code, status: 'failed', message: error.message };
+        if (error instanceof RepositoryError) return { ok: false, code: 'database', status: 'failed', message: messages.database };
         throw error;
       }
     });
@@ -192,6 +208,37 @@ export async function runProjectDiscovery(
       nextCursors = { ...claim.cursors, publicQueryRound: (queryRound + Math.floor((index + 1) / partitions.length)) % 2 };
       const candidates = page.results.slice(0, limit);
       reviewed += candidates.length;
+      let deferredExtractionFailure: StopProjectRun | null = null;
+      if (provider.extract) {
+        const missingUrls = [...new Set(candidates.filter(result => result.rawContent.trim().length < 80)
+          .map(result => normalizeProjectUrl(result.url)).filter((url): url is string => Boolean(url)))];
+        if (missingUrls.length) {
+          const extractionCapacity = await repository.capacity(ownerId, runId, token);
+          if (!extractionCapacity.allowed && extractionCapacity.reason === 'daily_lead_limit') {
+            deferredExtractionFailure = new StopProjectRun('daily_lead_limit', 'completed', 'The daily saved-request cap was reached. No additional source retrieval was made.');
+          } else {
+            try {
+              await active();
+              const extracted = await search(`extract:${JSON.stringify(missingUrls)}`, `${operation}:extract`, () => provider.extract!({ urls: missingUrls }));
+              const byUrl = new Map(extracted.results.map(result => [normalizeProjectUrl(result.url), result]));
+              for (let index = 0; index < candidates.length; index++) {
+                const original = candidates[index], sourceUrl = normalizeProjectUrl(original.url);
+                if (!sourceUrl || original.rawContent.trim().length >= 80) continue;
+                const source = byUrl.get(sourceUrl);
+                if (source && source.rawContent.trim().length >= 80 && normalizeProjectUrl(source.url) === sourceUrl) {
+                  candidates[index] = { ...original, rawContent: source.rawContent };
+                  sourceTextsRecovered++;
+                }
+              }
+            } catch (error) {
+              // Keep useful full-text search results from this batch even when
+              // optional retrieval fails or the request budget is exhausted.
+              if (error instanceof StopProjectRun && ['daily_request_limit', 'authentication', 'quota', 'rate_limit', 'unavailable', 'invalid_input', 'invalid_response'].includes(error.code)) deferredExtractionFailure = error;
+              else throw error;
+            }
+          }
+        }
+      }
       for (const result of candidates) {
         await active();
         const sourceUrl = normalizeProjectUrl(result.url);
@@ -230,16 +277,22 @@ export async function runProjectDiscovery(
         if (saved.status === 'saved') { summary.leadsSaved++; await mark(sourceUrl, 'saved'); }
         else { await mark(sourceUrl, 'rejected', saved.status); omit(saved.status); }
       }
+      if (deferredExtractionFailure) throw deferredExtractionFailure;
     }
     await active();
     summary.status = 'completed';
     const counts = [...omissions].map(([reason, count]) => `${omissionLabels[reason]}: ${count}`).join('; ');
-    summary.message = `Public project-request search finished: ${searchesCompleted} ${searchesCompleted === 1 ? 'query' : 'queries'}, ${summary.companiesFound} unique pages, ${summary.leadsSaved} saved.${counts ? ` Omitted — ${counts}.` : ''} Review each original request before responding.`.slice(0, 500);
+    summary.message = `Public project-request search finished: ${searchesCompleted} ${searchesCompleted === 1 ? 'query' : 'queries'}, ${summary.companiesFound} unique pages, ${summary.leadsSaved} saved.${sourceTextsRecovered ? ` Full text recovered for ${sourceTextsRecovered} ${sourceTextsRecovered === 1 ? 'page' : 'pages'}.` : ''}${counts ? ` Omitted — ${counts}.` : ''} Review each original request before responding.`.slice(0, 500);
     if (contactsOmitted) summary.message = `${summary.message.slice(0, 390)} Published contact evidence was incomplete for ${contactsOmitted} requests; use their original platform.`.slice(0, 500);
   } catch (error) {
     summary.status = error instanceof StopProjectRun ? error.status : 'failed';
     summary.errorCode = error instanceof StopProjectRun ? error.code : safeErrorCode(error);
     summary.message = error instanceof StopProjectRun ? error.message : messages[summary.errorCode] ?? messages.unavailable;
+    if (error instanceof RequestCheckpointError) summary.message = error.message;
+    if (summary.companiesFound) {
+      const counts = [...omissions].map(([reason, count]) => `${omissionLabels[reason]}: ${count}`).join('; ');
+      summary.message = `${summary.message} Before stopping: ${summary.companiesFound} pages reviewed, ${summary.leadsSaved} saved.${counts ? ` Omitted — ${counts}.` : ''}`.slice(0, 500);
+    }
   }
   // The SQL function recomputes historical request/save counters from immutable audit
   // rows. Browser run history reads those values, not the checkpoint replay counters.

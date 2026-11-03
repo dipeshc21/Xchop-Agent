@@ -32,6 +32,9 @@ const failedReasons: Record<string, string> = {
   database: 'The worker could not save progress. Check the database update and worker configuration.',
   configuration: 'The worker configuration was incomplete. Complete the connection checks.',
   request_uncertain: 'A paid search has no confirmed response. Review its provider usage before retrying.',
+  recorded_failure: 'A previous provider attempt failed. Inspect its Inngest step for the cause before retrying.',
+  checkpoint_rejected: 'Returned search data did not pass database content checks. Inspect the Inngest step; the paid request was not repeated.',
+  checkpoint_unavailable: 'The app could not confirm that a response was saved. Inspect the Inngest step and database access; the paid request was not repeated.',
 };
 
 /** Presence of keys is not proof that the hosted scheduler has executed. This

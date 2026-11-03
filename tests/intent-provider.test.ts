@@ -124,3 +124,105 @@ test('response limits inspect both Content-Length and actual streamed bytes', as
   const oversized = new TavilyClient(key, { fetch: mock(() => json({ results: [{ ...row, raw_content: 'x'.repeat(tavilyResponseLimits.bytes + 1) }] })) });
   await expectCode(() => oversized.search(input), 'invalid_response');
 });
+
+test('missing-source extraction uses one fixed endpoint and requests complete source rather than query chunks', async () => {
+  let calls = 0;
+  const client = new TavilyClient(key, { fetch: mock((url, init) => {
+    calls++;
+    assert.equal(url.href, 'https://api.tavily.com/extract');
+    assert.equal(init.method, 'POST'); assert.equal(init.redirect, 'error'); assert.equal(init.cache, 'no-store');
+    assert.equal(new Headers(init.headers).get('authorization'), `Bearer ${key}`);
+    const body = JSON.parse(String(init.body));
+    assert.deepEqual(body.urls, [row.url]);
+    assert.equal(body.format, 'text'); assert.equal(body.extract_depth, 'basic');
+    assert.equal(body.query, undefined); assert.equal(body.chunks_per_source, undefined);
+    assert.equal(body.include_answer, undefined); assert.equal(body.timeout, 10);
+    assert.equal(String(init.body).includes(key), false);
+    return json({ results: [{ ...row, title: 'Not trusted for extraction identity', published_date: '2026-11-01' }], failed_results: [], answer: `Never retained ${key}` });
+  }) });
+  const result = await client.extract({ urls: [row.url, `${row.url}?utm_campaign=discovery#details`] });
+  assert.deepEqual(result, { results: [{ title: '', url: row.url, rawContent: row.raw_content, publishedDate: null }] });
+  assert.equal(calls, 1); assert.equal(JSON.stringify(result).includes(key), false);
+});
+
+test('extraction binds full content to requested public URLs and rejects ambiguous or failed sources', async () => {
+  const base = 'https://buyer.com/request/';
+  const client = new TavilyClient(key, { fetch: mock(() => json({
+    results: [
+      { ...row, url: `${base}one?utm_source=test#summary` },
+      { ...row, url: `${base}unrequested`, raw_content: 'Unrelated source that must not be attributed to a requested project.' },
+      { ...row, url: `${base}two`, raw_content: null, content: 'Search snippets cannot replace a failed extraction.' },
+      { ...row, url: `${base}three`, raw_content: 'Earlier content for a conflicting duplicate response.' },
+      { ...row, url: `${base}three`, raw_content: 'This duplicate says that the request is closed.' },
+      { ...row, url: `${base}four` },
+    ],
+    failed_results: [{ url: `${base}four`, error: `Private provider error ${key}` }],
+  })) });
+  const result = await client.extract({ urls: ['one', 'two', 'three', 'four'].map(id => base + id) });
+  assert.deepEqual(result, { results: [{ title: '', url: base + 'one', rawContent: row.raw_content, publishedDate: null }] });
+  assert.equal(JSON.stringify(result).includes('Unrelated'), false); assert.equal(JSON.stringify(result).includes(key), false);
+});
+
+test('extraction failures stay empty without falling back to snippets or generated answers', async () => {
+  const client = new TavilyClient(key, { fetch: mock(() => json({
+    results: [], failed_results: [{ url: row.url, error: 'Could not read this page' }],
+    answer: 'A generated project need', content: 'A search snippet with a project need',
+  })) });
+  assert.deepEqual(await client.extract({ urls: [row.url] }), { results: [] });
+});
+
+test('extraction validates URL and batch bounds before making any paid request', async () => {
+  let calls = 0;
+  const client = new TavilyClient(key, { fetch: mock(() => { calls++; return json({ results: [], failed_results: [] }); }) });
+  const invalid = [[], Array(21).fill(row.url), ['file:///private'], ['https://127.0.0.1/private'],
+    ['https://buyer.internal/request'], ['https://person:password@buyer.com/request'],
+    ['https://buyer.com/request?api_key=private'], ['https://buyer.com/api_key=private'],
+    ['https://buyer.com/request?signature=private'], ['https://buyer.com:8443/request']];
+  for (const urls of invalid) await expectCode(() => client.extract({ urls }), 'invalid_input');
+  assert.equal(calls, 0);
+});
+
+test('credential-shaped page content is omitted whole without discarding other safe search/extraction sources', async () => {
+  const sensitive = 'provider-fixture-value-must-not-be-retained';
+  for (const marker of [`api_key=${sensitive}`, `apikey=${sensitive}`, `access_token=${sensitive}`, `authorization=${sensitive}`, `"api_key":"${sensitive}"`, `"password": "${sensitive}"`]) {
+    const client = new TavilyClient(key, { fetch: mock(() => json({ results: [
+      { ...row, url: `${row.url}/unsafe`, raw_content: `${row.raw_content}\n${marker}` },
+      { ...row, url: `${row.url}/unsafe-title`, title: marker }, row,
+    ], failed_results: [] })) });
+    const searched = await client.search(input);
+    assert.deepEqual(searched.results.map(result => result.url), [row.url]);
+    assert.equal(JSON.stringify(searched).includes(sensitive), false);
+    const extracted = await client.extract({ urls: [row.url, `${row.url}/unsafe`] });
+    assert.deepEqual(extracted.results.map(result => result.url), [row.url]);
+    assert.equal(JSON.stringify(extracted).includes(sensitive), false);
+  }
+});
+
+test('extraction omits oversized pages whole and bounds aggregate content without hiding trailing status', async () => {
+  const urls = Array.from({ length: 6 }, (_, index) => `https://buyer.com/request/${index}`);
+  const client = new TavilyClient(key, { fetch: mock(() => json({ results: [
+    { url: urls[0], raw_content: 'x'.repeat(60_001) + '\nThis request is closed.' },
+    ...urls.slice(1).map(url => ({ url, raw_content: 'x'.repeat(50_000) })),
+  ], failed_results: [] })) });
+  const result = await client.extract({ urls });
+  assert.equal(result.results.length, 4); assert.ok(!result.results.some(result => result.url === urls[0]));
+  assert.equal(result.results.reduce((total, result) => total + result.rawContent.length, 0), tavilyResponseLimits.totalContentCharacters);
+});
+
+test('extraction failures are redacted single-call outcomes, including malformed partial responses and timeout', async () => {
+  for (const [status, code] of [[401, 'authentication'], [429, 'rate_limit'], [432, 'quota'], [503, 'unavailable']] as const) {
+    let calls = 0;
+    const client = new TavilyClient(key, { fetch: mock(() => { calls++; return json({ detail: { error: `credential=${key}` } }, status); }) });
+    await assert.rejects(() => client.extract({ urls: [row.url] }), error => {
+      assert.ok(error instanceof IntentProviderError); assert.equal(error.code, code);
+      assert.equal(error.message.includes(key), false); return true;
+    });
+    assert.equal(calls, 1);
+  }
+  for (const body of [{ failed_results: [] }, { results: [], failed_results: { error: key } }, { results: Array(21).fill(row), failed_results: [] }]) {
+    const client = new TavilyClient(key, { fetch: mock(() => json(body)) });
+    await expectCode(() => client.extract({ urls: [row.url] }), 'invalid_response');
+  }
+  const timeout = new TavilyClient(key, { timeoutMs: 5, fetch: mock(() => new Promise<Response>(() => {})) });
+  await expectCode(() => timeout.extract({ urls: [row.url] }), 'unavailable');
+});
