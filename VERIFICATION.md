@@ -30,6 +30,8 @@ npm run smoke:settings
 npm run smoke:prospecting
 ```
 
+The subsequent Today/Past update passed `npm run typecheck`, `tests/intent-day-window.test.ts`, a fresh production build and the expanded `npm run smoke:prospecting`. That HTTP check exercised both date tabs, their date columns and filtered pagination.
+
 Run TypeScript checks and production builds sequentially because Next.js regenerates files under `.next/types`.
 
 Verified coverage includes:
@@ -40,6 +42,7 @@ Verified coverage includes:
 - Owner-scoped restoration, recovered targeting/progress, six-hour interval, unchanged current budgets, cancellation of incompatible old work, migration rerun safety, and the first Hunter queue/reserve/save path.
 - Duplicate/deleted-record protection, source-backed verified contact persistence, tenant isolation, read/write permissions, and unchanged request audit totals.
 - Production HTTP routes using localhost fixture sessions: readiness before/after 009, restoration access guards, queued-first-run behavior, company-mode usage/history, saved-contact navigation, settings persistence, and unsigned job rejection.
+- Today/Past company-contact tabs use inclusive/exclusive India-day boundaries on original creation dates before pagination. HTTP fixtures cover exact midnight, older records updated today, future-day exclusion, 52-record past pagination, search/country filtering, out-of-range redirects and unchanged dashboard recent records.
 - Existing source/date/contact tests for the retained public-request archive and exact downloadable migration copies.
 
 Provider and worker tests inject fixtures. Database tests use PGlite. HTTP smoke checks use temporary local servers and fixture credentials; outbound provider calls are blocked. These checks do not use or verify the owner's live Hunter key, Supabase project, Inngest account, billing, or computer-off scheduling.

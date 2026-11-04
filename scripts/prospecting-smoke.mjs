@@ -14,10 +14,28 @@ import { tsImport } from 'tsx/esm/api';
 // Run after a normal production build made with no Supabase configuration.
 await access(new URL('../.next/BUILD_ID', import.meta.url));
 const { defaultProspectingConfig } = await tsImport('../lib/prospecting/types.ts', import.meta.url);
+const { indiaDayWindow } = await tsImport('../lib/intent/day-window.ts', import.meta.url);
 const ownerId = '00000000-0000-4000-8000-000000000098';
 const leadId = '00000000-0000-4000-8000-000000000097';
 const runId = '00000000-0000-4000-8000-000000000096';
 const inquiryId = '00000000-0000-4000-8000-000000000094';
+const leadDay = indiaDayWindow();
+const leadFixture = {
+  owner_id: ownerId, company: 'Today midnight fixture', country: 'United States', email: 'today@fixture.org',
+  contact_name: 'Fixture contact', website: 'https://fixture.org', role: 'Director', stage: 'new', score: 70,
+  score_reason: 'Fixture company fit', value: 0, segment: 'Design agency', source: 'Local fixture only',
+  lawful_basis: 'Fixture review basis', created_at: leadDay.start, updated_at: new Date().toISOString(),
+};
+const leadsFixture = [
+  { ...leadFixture, id: leadId },
+  ...Array.from({ length: 52 }, (_, index) => ({ ...leadFixture,
+    id: `00000000-0000-4000-8001-${String(index).padStart(12, '0')}`,
+    company: `Past fixture company ${String(index).padStart(2, '0')}`, email: `past${index}@fixture.org`,
+    country: index === 51 ? 'Canada' : 'United States',
+    created_at: new Date(Date.parse(leadDay.start) - 1 - index * 3_600_000).toISOString(),
+  })),
+  { ...leadFixture, id: '00000000-0000-4000-8001-000000000099', company: 'Tomorrow boundary fixture', created_at: leadDay.end },
+];
 const today = new Date().toISOString().slice(0, 10);
 const futureDeadline = new Date(Date.now() + 7 * 86_400_000).toISOString();
 const inquiryFixture = {
@@ -159,8 +177,22 @@ const mock = createServer(async (request, response) => {
   }
   if (request.method === 'GET' && url.pathname === '/rest/v1/suppression_list') { reply(suppressionEntries); return; }
   if (request.method === 'GET' && url.pathname === '/rest/v1/leads') {
-    response.setHeader('Content-Range', '*/0');
-    reply(url.searchParams.get('id') === `eq.${leadId}` ? [{ id: leadId }] : []); return;
+    if (url.searchParams.has('id')) {
+      reply(url.searchParams.get('id') === `eq.${leadId}` ? [{ id: leadId }] : []); return;
+    }
+    const dates = url.searchParams.getAll('created_at');
+    let records = leadsFixture.filter(row => dates.every(value => value.startsWith('gte.')
+      ? Date.parse(row.created_at) >= Date.parse(value.slice(4)) : value.startsWith('lt.') && Date.parse(row.created_at) < Date.parse(value.slice(3))));
+    const company = url.searchParams.get('company');
+    if (company) records = records.filter(row => row.company.toLowerCase().includes(company.slice('ilike.%'.length, -1).toLowerCase()));
+    const country = url.searchParams.get('country');
+    if (country) records = records.filter(row => row.country === country.slice(3));
+    records.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+    const offset = Number(url.searchParams.get('offset') ?? 0);
+    const limit = Number(url.searchParams.get('limit') ?? 50);
+    const page = records.slice(offset, offset + limit);
+    response.setHeader('Content-Range', page.length ? `${offset}-${offset + page.length - 1}/${records.length}` : `*/${records.length}`);
+    reply(page); return;
   }
   if (request.method === 'GET' && url.pathname === '/rest/v1/enrichment_data') {
     if (url.searchParams.get('lead_id') !== `eq.${leadId}`) { reply({ message: 'Lead filter required.' }, 500); return; }
@@ -308,7 +340,37 @@ globalThis.fetch = function(input, init) {
   contactMigrationMissing = false;
   const legacyView = await fetch(`${origin}/?view=leads`, { headers, redirect: 'manual' });
   assert.equal(legacyView.status, 200);
-  assert.match(await legacyView.text(), /Business prospects/);
+  const todayHtml = await legacyView.text();
+  assert.match(todayHtml, /Business prospects/);
+  assert.equal((todayHtml.match(/role="tab"/g) || []).length, 2, 'Leads has exactly Today and Past tabs.');
+  assert.match(todayHtml, /Today<\/button>/); assert.match(todayHtml, /Past<\/button>/);
+  assert.match(todayHtml, /Date discovered/i); assert.match(todayHtml, /Today midnight fixture/);
+  assert.ok(!todayHtml.includes('Past fixture company'), 'Past companies must not leak into Today.');
+  assert.ok(!todayHtml.includes('Tomorrow boundary fixture'), 'The end of Today is exclusive.');
+  const formattedLeadDate = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeZone: 'Asia/Kolkata' }).format(new Date(leadDay.start));
+  assert.ok(todayHtml.includes(formattedLeadDate), 'The discovery column uses the original first-save date in India.');
+  const todayRead = [...requests].reverse().find(item => item.path === '/rest/v1/leads');
+  assert.deepEqual(new URLSearchParams(todayRead.search).getAll('created_at'), [`gte.${leadDay.start}`, `lt.${leadDay.end}`]);
+  const pastView = await fetch(`${origin}/?view=leads&leadPeriod=past`, { headers, redirect: 'manual' });
+  assert.equal(pastView.status, 200);
+  const pastHtml = await pastView.text();
+  assert.match(pastHtml, /Past fixture company 00/); assert.match(pastHtml, /Past fixture company 49/);
+  assert.ok(!pastHtml.includes('Today midnight fixture')); assert.ok(!pastHtml.includes('Past fixture company 51'));
+  const pastRead = [...requests].reverse().find(item => item.path === '/rest/v1/leads');
+  assert.deepEqual(new URLSearchParams(pastRead.search).getAll('created_at'), [`lt.${leadDay.start}`]);
+  const pastSecond = await (await fetch(`${origin}/?view=leads&leadPeriod=past&p=2`, { headers })).text();
+  assert.match(pastSecond, /Past fixture company 50/); assert.match(pastSecond, /Past fixture company 51/);
+  assert.ok(!pastSecond.includes('Today midnight fixture'), 'Past pagination remains confined to the selected period.');
+  const filteredPast = await (await fetch(`${origin}/?view=leads&leadPeriod=past&q=company%2051&country=Canada`, { headers })).text();
+  assert.match(filteredPast, /Past fixture company 51/); assert.ok(!filteredPast.includes('Past fixture company 50'));
+  const outOfRange = await fetch(`${origin}/?view=leads&leadPeriod=past&p=99&q=company%2051&country=Canada`, { headers, redirect: 'manual' });
+  assert.equal(outOfRange.status, 307);
+  const corrected = new URL(outOfRange.headers.get('location'), origin);
+  assert.equal(corrected.searchParams.get('view'), 'leads'); assert.equal(corrected.searchParams.get('leadPeriod'), 'past');
+  assert.equal(corrected.searchParams.get('q'), 'company 51'); assert.equal(corrected.searchParams.get('country'), 'Canada');
+  const dashboardStart = requests.length;
+  assert.equal((await fetch(origin, { headers })).status, 200);
+  assert.equal(new URLSearchParams(requests.slice(dashboardStart).find(item => item.path === '/rest/v1/leads').search).has('created_at'), false, 'The dashboard recent-leads preview remains independent of the lead tabs.');
 
   migrationMissing = true;
   const missingResponse = await fetch(`${origin}/api/prospecting`, { headers });
@@ -388,7 +450,7 @@ globalThis.fetch = function(input, init) {
   assert.equal(restoredStatus.restorationPending, false); assert.equal(restoredStatus.enabled, true);
   assert.equal(restoredStatus.readiness.ready, true); assert.equal(restoredStatus.provider, 'hunter');
   assert.equal(await readFile(blockedLog, 'utf8'), '', 'No tested route may attempt an external provider fetch.');
-  console.log('PASS: Hunter restoration preview and authenticated restore/queue/dispatch, readiness/history/usage, exact009 SQL, saved contact navigation, preserved project archive, owner isolation, keyless pause and blocked paid work, suppression/research guards, and unsigned jobs.');
+  console.log('PASS: Today/Past lead tabs with India boundaries, original discovery dates, filtered pagination, Hunter restoration/queue/dispatch, readiness/history/usage, exact009 SQL, preserved archive, owner isolation, keyless pause, suppression/research guards, and unsigned jobs.');
 } finally {
   if (child && !childExited) { const exit = once(child, 'exit'); child.kill('SIGTERM'); await exit; }
   if (mock.listening) { const closed = once(mock, 'close'); mock.close(); mock.closeAllConnections(); await closed; }

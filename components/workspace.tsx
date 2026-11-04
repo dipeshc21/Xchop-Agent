@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import CsvImport from '@/components/prospecting/csv-import';
 import LeadResearch from '@/components/prospecting/lead-research';
 import { ContactDetails } from '@/components/intent/request-detail';
+import { indiaDayWindow } from '@/lib/intent/day-window';
 import type { Lead } from '@/lib/models';
 import type { DashboardPeriod, DashboardSummary } from '@/lib/dashboard';
 import { type Settings, settingsSchema, stages } from '@/lib/schema';
@@ -34,6 +35,8 @@ type Props = CommonProps & ({
   pageNumber: number;
   pageSize: number;
   totalLeads: number;
+  leadPeriod: 'today' | 'past';
+  leadDay: string;
 });
 const navigation = [['Dashboard', LayoutDashboard], ['Leads', Users], ['Settings', SettingsIcon]] as const;
 const planned = [['Pipeline', Columns3], ['Outreach', Send], ['Inbox', Inbox], ['Quotes', FileText], ['Projects', FolderKanban], ['Analytics', ChartNoAxesCombined]] as const;
@@ -74,6 +77,18 @@ export default function Workspace(props: Props) {
   useEffect(() => { setQuery(workspaceData?.search ?? ''); }, [workspaceData?.search]);
   useEffect(() => { setPage(initialPage); }, [initialPage]);
   useEffect(() => {
+    if (page !== 'Leads' || !workspaceData?.leadDay) return;
+    const refreshAfterMidnight = () => {
+      if (indiaDayWindow().date !== workspaceData.leadDay) router.refresh();
+    };
+    refreshAfterMidnight();
+    const day = indiaDayWindow();
+    const timer = setTimeout(() => router.refresh(), Math.max(1, Date.parse(day.end) - Date.now() + 30));
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshAfterMidnight(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearTimeout(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, [page, workspaceData?.leadDay, router]);
+  useEffect(() => {
     const next = JSON.stringify(initialSettings);
     const previous = receivedSettings.current;
     if (next === previous) return;
@@ -88,20 +103,20 @@ export default function Workspace(props: Props) {
   function go(name: WorkspacePage) {
     setMobile(false);
     if (name === 'Leads') {
-      if (!props.settingsOnly) setPage('Leads');
+      if (!props.settingsOnly && initialPage === 'Leads') setPage('Leads');
       router.push('/?view=leads');
       return;
     }
-    if (props.settingsOnly && name !== 'Settings') {
+    if (name === 'Dashboard' && (props.settingsOnly || initialPage !== 'Dashboard')) {
       router.push('/');
       return;
     }
     setPage(name);
   }
-  function filters(changes: { period?: string; q?: string; country?: string; p?: string }) {
+  function filters(changes: { period?: string; q?: string; country?: string; p?: string; leadPeriod?: 'today' | 'past' }) {
     if (!workspaceData) return;
     const { period, search, country, pageNumber } = workspaceData;
-    const params = new URLSearchParams({ view: page === 'Leads' ? 'contacts' : page.toLowerCase(), period, ...(search ? { q: search } : {}), ...(country ? { country } : {}), p: String(pageNumber), ...changes });
+    const params = new URLSearchParams({ view: page === 'Leads' ? 'leads' : page.toLowerCase(), period, ...(page === 'Leads' ? { leadPeriod: workspaceData.leadPeriod } : {}), ...(search ? { q: search } : {}), ...(country ? { country } : {}), p: String(pageNumber), ...changes });
     for (const key of [...params.keys()]) if (!params.get(key)) params.delete(key);
     router.push(`/?${params}`);
   }
@@ -183,7 +198,40 @@ export default function Workspace(props: Props) {
           <section className="panel discovery-leads-banner"><div><strong>Find relevant business contacts with Hunter.</strong><p>Discover companies, verify published work emails and review each prospect before following up.</p></div><a href="/prospecting" className="button primary">Open lead discovery <ArrowRight size={15} /></a></section><section className="panel leads-panel"><div className="section-heading"><div><h2>Recent business prospects</h2><p>{workspaceData.search || workspaceData.country ? 'Showing your current lead filters.' : 'Saved business contacts. Company fit does not establish an active project requirement.'}</p></div><button className="text-link" onClick={() => go('Leads')}>Manage leads <ArrowRight size={15} /></button></div><LeadTable leads={workspaceData.initialLeads.slice(0, 5)} onSelect={setSelected} emptyAction={() => setAdding(true)} /></section><div className="workspace-footer"><span><span className="legend-dot" /> Signed in · records protected by account access rules</span><span>Reports use UTC · due dates use India time.</span></div>
         </>}
 
-        {workspaceData && page === 'Leads' && <><div className="discovery-leads-banner panel"><div><strong>Find relevant business contacts.</strong><p>Hunter discovers companies and verifies published work emails. Review the source and confirm their needs before following up.</p></div><a href="/prospecting" className="button primary"><Search size={15} /> Open lead discovery</a></div><section className="panel leads-panel"><div className="section-heading"><div><h2>{workspaceData.totalLeads} {workspaceData.totalLeads === 1 ? 'lead' : 'leads'}{workspaceData.search || workspaceData.country ? ' matching your filters' : ''}</h2><p>Business prospects with unconfirmed project requirements. A company match or verified email does not establish a development need.</p></div></div><form className="table-filters" onSubmit={e => { e.preventDefault(); filters({ q: query.trim(), p: '1' }); }}><label className="search-field"><Search size={17} /><input aria-label="Search company name" placeholder="Search company name…" maxLength={100} value={query} onChange={e => setQuery(e.target.value)} /></label><select aria-label="Filter country" value={workspaceData.country} onChange={e => filters({ country: e.target.value, p: '1' })}><option value="">All countries</option>{workspaceData.summary.markets.map(item => <option key={item.country}>{item.country}</option>)}</select><Button type="submit" variant="outline">Search</Button>{(workspaceData.search || workspaceData.country) && <Button type="button" variant="ghost" onClick={() => { setQuery(''); filters({ q: '', country: '', p: '1' }); }}>Clear filters</Button>}</form><LeadTable leads={workspaceData.initialLeads} onSelect={setSelected} emptyAction={() => setAdding(true)} /><div className="pagination"><span>{workspaceData.totalLeads ? `${(workspaceData.pageNumber - 1) * workspaceData.pageSize + 1}–${Math.min(workspaceData.pageNumber * workspaceData.pageSize, workspaceData.totalLeads)} of ${workspaceData.totalLeads}` : 'No records'}</span><Button variant="outline" disabled={workspaceData.pageNumber <= 1} onClick={() => filters({ p: String(workspaceData.pageNumber - 1) })}>Previous</Button><Button variant="outline" disabled={workspaceData.pageNumber * workspaceData.pageSize >= workspaceData.totalLeads} onClick={() => filters({ p: String(workspaceData.pageNumber + 1) })}>Next</Button></div></section><CsvImport onImported={() => router.refresh()} /></>}
+        {workspaceData && page === 'Leads' && <>
+          <div className="discovery-leads-banner panel"><div><strong>Find relevant business contacts.</strong><p>Hunter discovers companies and verifies published work emails. Review the source and confirm their needs before following up.</p></div><a href="/prospecting" className="button primary"><Search size={15} /> Open lead discovery</a></div>
+          <section className="panel leads-panel">
+            <div className="section-heading"><div><h2>{workspaceData.totalLeads} {workspaceData.totalLeads === 1 ? 'lead' : 'leads'}{workspaceData.search || workspaceData.country ? ' matching your filters' : ''}</h2><p>Business prospects with unconfirmed project requirements. A company match or verified email does not establish a development need.</p></div></div>
+            <form className="table-filters" onSubmit={e => { e.preventDefault(); filters({ q: query.trim(), p: '1' }); }}>
+              <label className="search-field"><Search size={17} /><input aria-label="Search company name" placeholder="Search company name…" maxLength={100} value={query} onChange={e => setQuery(e.target.value)} /></label>
+              <select aria-label="Filter country" value={workspaceData.country} onChange={e => filters({ country: e.target.value, p: '1' })}><option value="">All countries</option>{workspaceData.summary.markets.map(item => <option key={item.country}>{item.country}</option>)}</select>
+              <Button type="submit" variant="outline">Search</Button>{(workspaceData.search || workspaceData.country) && <Button type="button" variant="ghost" onClick={() => { setQuery(''); filters({ q: '', country: '', p: '1' }); }}>Clear filters</Button>}
+            </form>
+            <div className="lead-period-bar">
+              <div className="discovery-tabs lead-period-tabs" role="tablist" aria-label="Lead discovery date">
+                {([['today', 'Today'], ['past', 'Past']] as const).map(([period, label]) => <button
+                  type="button" role="tab" key={period} id={`lead-period-${period}`} aria-selected={workspaceData.leadPeriod === period}
+                  aria-controls="lead-period-panel" tabIndex={workspaceData.leadPeriod === period ? 0 : -1}
+                  className={workspaceData.leadPeriod === period ? 'active' : ''}
+                  onClick={() => filters({ leadPeriod: period, p: '1' })}
+                  onKeyDown={event => {
+                    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                    event.preventDefault();
+                    const next = event.key === 'Home' ? 'today' : event.key === 'End' ? 'past' : period === 'today' ? 'past' : 'today';
+                    document.getElementById(`lead-period-${next}`)?.focus();
+                    filters({ leadPeriod: next, p: '1' });
+                  }}
+                >{label}</button>)}
+              </div>
+              <span>Dates use India time</span>
+            </div>
+            <div id="lead-period-panel" role="tabpanel" aria-labelledby={`lead-period-${workspaceData.leadPeriod}`}>
+              <LeadTable leads={workspaceData.initialLeads} onSelect={setSelected} emptyAction={() => setAdding(true)} leadPeriod={workspaceData.leadPeriod} filtered={Boolean(workspaceData.search || workspaceData.country)} />
+              <div className="pagination"><span>{workspaceData.totalLeads ? `${(workspaceData.pageNumber - 1) * workspaceData.pageSize + 1}–${Math.min(workspaceData.pageNumber * workspaceData.pageSize, workspaceData.totalLeads)} of ${workspaceData.totalLeads}` : 'No records'}</span><Button variant="outline" disabled={workspaceData.pageNumber <= 1} onClick={() => filters({ p: String(workspaceData.pageNumber - 1) })}>Previous</Button><Button variant="outline" disabled={workspaceData.pageNumber * workspaceData.pageSize >= workspaceData.totalLeads} onClick={() => filters({ p: String(workspaceData.pageNumber + 1) })}>Next</Button></div>
+            </div>
+          </section>
+          <CsvImport onImported={() => router.refresh()} />
+        </>}
 
         {page === 'Settings' && <div className="settings-layout"><nav className="settings-nav" aria-label="Settings sections">{['Business profile', 'Safety & preferences', 'Knowledge base', 'Connections'].map(tab => <button key={tab} className={settingTab === tab ? 'selected' : ''} onClick={() => setSettingTab(tab)}>{tab}</button>)}<a href="/setup">Connection & setup guide <ArrowUpRight size={14} /></a></nav><form className="panel settings-panel" onSubmit={save}>
           {settingsConflict && <div className="info-box" role="status"><div><p>Your saved settings changed while you were editing. Load the latest values before making more changes.</p><Button type="button" variant="outline" onClick={() => { setDraft(settings); setSettingsConflict(false); setSaveError(''); }}>Load latest saved values</Button></div></div>}
@@ -201,8 +249,10 @@ export default function Workspace(props: Props) {
   </div>;
 }
 
-function LeadTable({ leads, onSelect, emptyAction }: { leads: Lead[]; onSelect: (lead: Lead) => void; emptyAction: () => void }) {
-  return <div className="table-scroll"><table><thead><tr><th>COMPANY / CONTACT</th><th>COUNTRY</th><th>FIT SCORE</th><th>STAGE</th><th>VALUE (USD)</th><th><span className="sr-only">Details</span></th></tr></thead><tbody>{leads.map((lead, index) => <tr key={lead.id}><td><button className="company-button" onClick={() => onSelect(lead)}><span className={`company-avatar tone-${index % 4}`}>{lead.company.split(' ').slice(0, 2).map(word => word[0]).join('')}</span><span><strong>{lead.company}</strong><small>{lead.contact_name || 'No contact name'}{lead.segment ? ` · ${lead.segment}` : ''}</small></span></button></td><td>{lead.country}</td><td>{lead.score_reason && lead.score_reason !== 'Not scored' ? <span className="score" title={lead.score_reason}>{lead.score} / 100</span> : <span className="not-scored">Not scored</span>}</td><td><span className={`stage stage-${lead.stage.toLowerCase().replaceAll(' ', '-')}`}>{lead.stage}</span></td><td className="value-cell">{money(lead.value)}</td><td><button className="icon-button" aria-label={`View ${lead.company}`} onClick={() => onSelect(lead)}><ArrowUpRight size={16} /></button></td></tr>)}</tbody></table>{!leads.length && <div className="empty-records"><Users size={28} /><h3>No leads to show yet.</h3><p>Add a real business contact, or clear your search filters.</p><Button onClick={emptyAction}><Plus size={15} /> Add a lead</Button></div>}</div>;
+function LeadTable({ leads, onSelect, emptyAction, leadPeriod, filtered = false }: { leads: Lead[]; onSelect: (lead: Lead) => void; emptyAction: () => void; leadPeriod?: 'today' | 'past'; filtered?: boolean }) {
+  const emptyTitle = filtered ? 'No leads match these filters.' : leadPeriod === 'today' ? 'No leads discovered today.' : leadPeriod === 'past' ? 'No past leads yet.' : 'No leads to show yet.';
+  const emptyMessage = filtered ? 'Try another search or country within this tab.' : leadPeriod === 'today' ? 'Earlier leads are available in Past. New discoveries will appear here.' : leadPeriod === 'past' ? 'Leads discovered before today appear here automatically.' : 'Add a real business contact, or clear your search filters.';
+  return <div className="table-scroll"><table><thead><tr><th>COMPANY / CONTACT</th><th>COUNTRY</th><th>DATE DISCOVERED</th><th>FIT SCORE</th><th>STAGE</th><th>VALUE (USD)</th><th><span className="sr-only">Details</span></th></tr></thead><tbody>{leads.map((lead, index) => <tr key={lead.id}><td><button className="company-button" onClick={() => onSelect(lead)}><span className={`company-avatar tone-${index % 4}`}>{lead.company.split(' ').slice(0, 2).map(word => word[0]).join('')}</span><span><strong>{lead.company}</strong><small>{lead.contact_name || 'No contact name'}{lead.segment ? ` · ${lead.segment}` : ''}</small></span></button></td><td>{lead.country}</td><td><time dateTime={lead.created_at}>{date(lead.created_at)}</time></td><td>{lead.score_reason && lead.score_reason !== 'Not scored' ? <span className="score" title={lead.score_reason}>{lead.score} / 100</span> : <span className="not-scored">Not scored</span>}</td><td><span className={`stage stage-${lead.stage.toLowerCase().replaceAll(' ', '-')}`}>{lead.stage}</span></td><td className="value-cell">{money(lead.value)}</td><td><button className="icon-button" aria-label={`View ${lead.company}`} onClick={() => onSelect(lead)}><ArrowUpRight size={16} /></button></td></tr>)}</tbody></table>{!leads.length && <div className="empty-records"><Users size={28} /><h3>{emptyTitle}</h3><p>{emptyMessage}</p><Button onClick={emptyAction}><Plus size={15} /> Add a lead</Button></div>}</div>;
 }
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {

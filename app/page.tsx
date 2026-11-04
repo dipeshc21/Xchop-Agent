@@ -5,12 +5,13 @@ import type { Lead } from '@/lib/models';
 import type { DashboardPeriod, DashboardSummary } from '@/lib/dashboard';
 import { defaults, settingsSchema } from '@/lib/schema';
 import { isReadableDashboardSummary } from '@/lib/setup-diagnostics';
+import { indiaDayWindow } from '@/lib/intent/day-window';
 import Workspace from '@/components/workspace';
 
 export const dynamic = 'force-dynamic';
 const PAGE_SIZE = 50;
 
-type Query = { period?: string | string[]; q?: string | string[]; country?: string | string[]; p?: string | string[]; view?: string | string[] };
+type Query = { period?: string | string[]; leadPeriod?: string | string[]; q?: string | string[]; country?: string | string[]; p?: string | string[]; view?: string | string[] };
 const scalar = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] ?? '' : value ?? '';
 export default async function Page({ searchParams }: { searchParams: Promise<Query> }) {
   if (!isSupabaseConfigured()) redirect('/setup');
@@ -18,6 +19,10 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
   const { data: { user }, error: authError } = await db.auth.getUser();
   if (authError || !user) redirect('/login');
   const params = await searchParams;
+  const view = scalar(params.view).toLowerCase();
+  const isLeadsView = ['contacts', 'leads'].includes(view);
+  const leadPeriod = scalar(params.leadPeriod) === 'past' ? 'past' : 'today';
+  const day = indiaDayWindow();
   const period: DashboardPeriod = ['month', 'week', 'all'].includes(scalar(params.period))
     ? scalar(params.period) as DashboardPeriod : 'month';
   const search = scalar(params.q).trim().slice(0, 100);
@@ -26,6 +31,9 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
   let leadQuery = db.from('leads').select('*', { count: 'exact' }).eq('owner_id', user.id)
     .order('created_at', { ascending: false }).order('id', { ascending: false })
     .range((pageNumber - 1) * PAGE_SIZE, pageNumber * PAGE_SIZE - 1);
+  if (isLeadsView) leadQuery = leadPeriod === 'today'
+    ? leadQuery.gte('created_at', day.start).lt('created_at', day.end)
+    : leadQuery.lt('created_at', day.start);
   if (search) leadQuery = leadQuery.ilike('company', `%${search.replace(/[\\%_]/g, '\\$&')}%`);
   if (country) leadQuery = leadQuery.eq('country', country);
   const [leads, settings, summary] = await Promise.all([
@@ -37,7 +45,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
   if (leads.error) redirect('/setup?reason=leads');
   if (summary.error || !isReadableDashboardSummary(summary.data)) redirect('/setup?reason=dashboard');
   if (pageNumber > 1 && (leads.count ?? 0) <= (pageNumber - 1) * PAGE_SIZE) {
-    const target = new URLSearchParams({ period, ...(search ? { q: search } : {}), ...(country ? { country } : {}) });
+    const target = new URLSearchParams({ period, ...(isLeadsView ? { view: 'leads', leadPeriod } : view === 'settings' ? { view } : {}), ...(search ? { q: search } : {}), ...(country ? { country } : {}) });
     redirect(`/?${target}`);
   }
   const parsed = settingsSchema.safeParse({ ...defaults, ...settings.data?.data });
@@ -46,8 +54,9 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
     initialSettings={parsed.success ? parsed.data : defaults}
     summary={summary.data as DashboardSummary}
     period={period} search={search} country={country}
+    leadPeriod={leadPeriod} leadDay={day.date}
     pageNumber={pageNumber} pageSize={PAGE_SIZE} totalLeads={leads.count ?? 0}
     userEmail={user.email ?? ''}
-    initialPage={['contacts', 'leads'].includes(scalar(params.view).toLowerCase()) ? 'Leads' : scalar(params.view).toLowerCase() === 'settings' ? 'Settings' : 'Dashboard'}
+    initialPage={isLeadsView ? 'Leads' : view === 'settings' ? 'Settings' : 'Dashboard'}
   />;
 }

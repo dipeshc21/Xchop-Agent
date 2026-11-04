@@ -141,6 +141,7 @@ Inngest checks due work hourly. A six-hour setting makes work due every six hour
 - **API attempts** counts budget reservations, including interrupted or failed ones. Hunter endpoints can consume different kinds or amounts of credits. The counter is not a bill or a number of confirmed responses.
 - **Queued** means work is stored for the worker. Inspect the completed run's result, companies reviewed, saved count, skipped count, and any safe error message. Do not count a queued row as a successful discovery.
 - Existing companies, emails and suppression choices are checked before new saves. Duplicate protection and scan progress continue across days. A repeat is not made fresh by changing its creation date.
+- **Leads** has two tabs: **Today** for records first saved since midnight India time, and **Past** for earlier records. **Date discovered** shows the original saved date in India time. Older leads move into Past automatically; search and pagination stay within the selected tab.
 - Use **Leads** for saved company/contact prospects, stage changes, source review, and follow-ups. Contact name, email, role, and website remain above the requirement/source fields in the popup.
 - Use **Pause discovery** to stop future requests and saves. An already-started request may finish; the worker checks again before another request or save.
 
