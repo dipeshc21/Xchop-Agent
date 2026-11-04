@@ -10,92 +10,66 @@ function External({ href, children }: { href: string; children: React.ReactNode 
 
 export default async function ProspectingSetupPage() {
   return <main className="setup-shell">
-    <Link href="/prospecting" style={{ display: 'inline-flex', gap: 7, alignItems: 'center', fontSize: 12 }}><ArrowLeft size={15} /> Back to discovery</Link>
-    <div className="eyebrow" style={{ marginTop: 30 }}>PUBLIC PROJECT REQUESTS · SETUP</div>
-    <h1>Find published website and application requests.</h1>
-    <section className="panel" id="discovery-repair">
-      <h2>Discovery stopped or saved no requests? Apply the reliability repair</h2>
-      <p>The earlier request filters rejected valid publication dates on separate lines and deadlines containing a time. Migration 008 repairs the database checks and schedules a retry within an hour after a temporary provider outage. It preserves records, targeting, daily limits, and your current on/off choice.</p>
+    <Link href="/prospecting" style={{ display: 'inline-flex', gap: 7, alignItems: 'center', fontSize: 12 }}><ArrowLeft size={15} /> Back to lead discovery</Link>
+    <div className="eyebrow" style={{ marginTop: 30 }}>HUNTER LEAD DISCOVERY · RESTORE</div>
+    <h1>Restore your company and contact discovery.</h1>
+    <p>This restores the Hunter discovery flow used for your earlier business contacts. Your saved contacts, business settings, suppression choices, run history, and public project-request records stay in place.</p>
+    <div className="info-box"><ShieldCheck size={20} /><p>Hunter finds businesses and published work contacts. A verified email or company match does not establish a website/app project requirement or permission to send marketing. Contact names and emails remain visible alongside their source details; unknown project requirements stay unknown.</p></div>
+
+    <section className="panel" id="hunter-restoration">
+      <h2 style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Database size={19} /> 1. Install the Hunter restoration update</h2>
+      <p>Use your existing Supabase project. Migration <code>009_restore_hunter_discovery.sql</code> restores the database access needed by Hunter while preserving existing data. It is safe to repeat.</p>
       <ol>
-        <li>Deploy the latest GitHub version. In your existing Supabase project open <b>SQL Editor → New query</b>, use <b>Copy discovery-repair SQL</b> below, paste, and click <b>Run</b>. Migration 006 must already be installed. Run 008 after 007 if you use the optional contact update; if you add 007 later, run 008 again afterwards.</li>
-        <li>Refresh <Link href="/prospecting">Lead discovery</Link>. Confirm the repair is installed and all connection checks are ready. In particular, public project-request discovery needs <code>TAVILY_API_KEY</code> in Vercel Production; an earlier Hunter key cannot replace it.</li>
-        <li>If discovery is <b>Paused</b>, review your targeting, click <b>Save targeting → Start automatic discovery</b>. The earlier migration 006 deliberately paused company discovery; this repair does not silently switch it back on.</li>
-        <li>Click <b>Run discovery now</b> and inspect <b>Run history</b>. Check the actual completed time, pages reviewed, requests saved, and any rejection or provider error. If work stays queued or a search is overdue, check the hourly Inngest function and endpoint below.</li>
-      </ol>
-      <ProspectingSetupActions migration="008_discovery_reliability.sql" />
-      <p>Paste SQL into Supabase, not a terminal command. Do not rerun 005 or 006 for this repair. Migration 008 is safe to repeat.</p>
-      <p>Each run now covers up to four country/service queries, sharing your saved total-results limit and daily API cap. Default targeting covers both countries and both service terms in one daily run. The app also rotates procurement and direct buyer-request wording. A verified daily search can still save zero results when no new suitable request is published.</p>
-      <p><b>Reading Run history:</b> a completed run with <b>no source text</b> found links whose pages could not be read. The worker tries Tavily&apos;s full-text retrieval within your existing daily cap before skipping them. The same Tavily key is used. New runs also preserve known provider errors and distinguish a response that could not be saved from an unfinished request. <b>API attempts</b> counts reserved attempts, including interrupted ones; it does not prove a successful response.</p>
-    </section>
-    <section className="panel">
-      <h2>Already using project requests? Add published contact details</h2>
-      <p>Contact names, emails, roles, and websites remain visible above the source fields. Existing contacts are preserved. The layout correction needs no database change.</p>
-      <p>To save published contact names and emails from newly discovered project posts, run the additive contact update once after migration 006. In Supabase open <b>SQL Editor → New query</b>, paste the SQL below, and click <b>Run</b>. Do not rerun migration 006 if it already succeeded.</p>
-      <ProspectingSetupActions migration="007_project_contacts.sql" />
-      <p>This update saves only contacts published for the project, with the same source link. It does not guess addresses or claim email deliverability. Requests without published contacts keep their original platform response link.</p>
-    </section>
-    <p>Connect Tavily to search public project requests. The app saves a result only when its source text contains an explicit buyer request, a dated publication, and evidence of a selected country. A company profile or an email address alone does not qualify.</p>
-    <div className="info-box"><ShieldCheck size={20} /><p>The app cannot see anyone&apos;s private Google searches or browsing history. Its popup shows the publicly posted request and where it appeared. Review the original posting and its response rules before replying.</p></div>
-    <section className="panel">
-      <h2 style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Database size={19} /> 1. Install the project-request database update</h2>
-      <p>If you already used Hunter discovery, keep your existing Supabase project. Migration 006 pauses the old discovery settings and preserves the previous contacts as unconfirmed contacts. It does not turn them into project inquiries.</p>
-      <ol>
-        <li>Update your project files from GitHub. In the project terminal run <code>git pull origin main</code>, then <code>npm ci</code>. Stop the development server first with <b>Ctrl+C</b>.</li>
-        <li>Open <External href="https://supabase.com/dashboard">your Supabase project</External> and choose <b>SQL Editor → New query</b>.</li>
-        <li>Click <b>Copy project-request SQL</b> below, paste that SQL into the query, and click <b>Run</b>. This is <code>006_project_requests.sql</code>. Complete migrations 001–005 first if this is a new installation.</li>
-        <li>Wait for the success message. If a prerequisite is missing, use the <Link href="/setup">workspace setup guide</Link> and run only the missing migrations in order. Do not rerun the foundation over an existing database.</li>
+        <li>Wait for the latest GitHub version to finish deploying in Vercel.</li>
+        <li>Open <External href="https://supabase.com/dashboard">Supabase</External> → your existing project → <b>SQL Editor → New query</b>.</li>
+        <li>Click <b>Copy Hunter restoration SQL</b> below. Paste the complete SQL into that new query, then click <b>Run</b>.</li>
+        <li>After the success message, refresh <Link href="/prospecting">Lead discovery</Link>. The Hunter database check should be ready.</li>
       </ol>
       <ProspectingSetupActions />
-      <p style={{ marginTop: 18 }}>The copy button contains SQL only. Commands such as <code>npm ci</code> belong in your project terminal, not in the Supabase SQL Editor.</p>
-      <p>For a new installation, migration 005 is still available as an <a href="/migrations/005_automatic_prospecting.sql" target="_blank" rel="noreferrer">earlier prerequisite SQL file</a>. Existing installations that already ran it should continue with 006.</p>
+      <p>Do not rerun migrations 005 or 006, drop tables, or create a new Supabase project for this restoration. Keep any already installed project-request updates 006–008. Paste SQL into Supabase; terminal commands such as <code>npm ci</code> belong in PowerShell.</p>
+      <p>For a completely new installation, finish the <Link href="/setup">workspace setup</Link> and migrations 001–005 first. The <a href="/migrations/005_automatic_prospecting.sql" target="_blank" rel="noreferrer">005 prerequisite SQL</a> is provided for installations that have never run it.</p>
     </section>
+
     <section className="panel">
-      <h2 style={{ display: 'flex', alignItems: 'center', gap: 9 }}><KeyRound size={19} /> 2. Create Tavily and add the private key</h2>
+      <h2 style={{ display: 'flex', alignItems: 'center', gap: 9 }}><KeyRound size={19} /> 2. Reuse your existing Hunter connection</h2>
+      <p>If Hunter was already connected when your earlier contacts were generated, keep the same account and key. Check <b>Vercel → Xchop-Agent → Settings → Environment Variables → Production</b> for <code>HUNTER_API_KEY</code>.</p>
       <ol>
-        <li>Open <External href="https://app.tavily.com/">Tavily&apos;s dashboard</External>, create an account, and finish any account confirmation. Open the API keys area and create or copy your actual API key privately.</li>
-        <li>Review your available credits and the <External href="https://docs.tavily.com/documentation/api-reference/endpoint/search">Search API documentation</External>. Search credits and account limits apply even when no result qualifies.</li>
-        <li>In <b>Vercel → your Xchop-Agent project → Settings → Environment Variables</b>, add <code>TAVILY_API_KEY</code> with your private key. Select <b>Production</b> for your hosted app and save.</li>
-        <li>Keep your existing Supabase connection, <code>SUPABASE_SERVICE_ROLE_KEY</code>, <code>AUTOMATION_OWNER_ID</code>, <code>APP_URL</code>, and Inngest keys. If Worker account is pending, copy your app sign-in account&apos;s User UID from <b>Supabase → Authentication → Users</b> into <code>AUTOMATION_OWNER_ID</code>.</li>
-        <li>Open <b>Vercel → Deployments → latest Production deployment → ⋯ → Redeploy</b>. Wait for <b>Ready</b>, then refresh your app. New environment values apply to a new deployment.</li>
+        <li>If the Hunter check is pending, open your <External href="https://hunter.io/api-keys">Hunter API keys page</External> and add your actual private key as <code>HUNTER_API_KEY</code> in Vercel Production.</li>
+        <li>Keep your existing Supabase URL and publishable key, <code>SUPABASE_SERVICE_ROLE_KEY</code>, <code>AUTOMATION_OWNER_ID</code>, <code>APP_URL</code>, and Inngest keys.</li>
+        <li>Only if you changed environment values, open <b>Vercel → Deployments → latest Production deployment → Redeploy</b>. Wait for <b>Ready</b> and refresh the app.</li>
       </ol>
-      <pre>{`TAVILY_API_KEY=your-private-tavily-api-key`}</pre>
-      <p>For local development, add that line to your existing <code>.env.local</code>, save, and restart <code>npm run dev</code>. Never put it in a <code>NEXT_PUBLIC_</code> variable or paste a key into chat.</p>
-      <p>Hunter and Anthropic keys are not required for project-request discovery. The new worker does not generate a company list or guess a project requirement from company facts.</p>
+      <p>If you need a new Hunter account, <External href="https://hunter.io/users/sign_up">create one</External> and check access and credits for Discover, Company Enrichment, Domain Search, and Email Verifier in the <External href="https://hunter.io/api-documentation">official API documentation</External>. Actual runs verify account access; a configured key alone does not establish plan eligibility.</p>
+      <p>Never put server keys in a <code>NEXT_PUBLIC_</code> variable, a browser form, chat, or GitHub. Tavily is not required for the restored Hunter worker. Its existing key can stay in your server settings, and saved <Link href="/inquiries?period=saved">public project requests remain available as an archive</Link>.</p>
     </section>
+
     <section className="panel">
-      <h2 style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Cloud size={19} /> 3. Keep scheduled discovery connected</h2>
-      <p>If your Vercel and Inngest setup already works, keep those accounts and settings. Check the endpoint after deploying the updated code.</p>
+      <h2 style={{ display: 'flex', alignItems: 'center', gap: 9 }}><CheckCircle2 size={19} /> 3. Restore targeting and run one batch</h2>
       <ol>
-        <li>For a new hosted setup, create <External href="https://vercel.com/signup">Vercel</External> and <External href="https://www.inngest.com/">Inngest</External> accounts. Import the <code>dipeshc21/Xchop-Agent</code> GitHub repository into Vercel as a Next.js project.</li>
-        <li>Add the public Supabase URL/publishable key and private server values from <code>.env.example</code> to Vercel&apos;s <b>Production</b> environment. Use your real hosted address for <code>APP_URL</code>.</li>
-        <li>In Inngest&apos;s <b>Production</b> environment, copy an <b>Event key</b> and its separate <b>Signing key</b>. Save them in Vercel as <code>INNGEST_EVENT_KEY</code> and <code>INNGEST_SIGNING_KEY</code>, then redeploy. Leave <code>INNGEST_DEV</code> unset in production.</li>
-        <li>In Supabase <b>Authentication → URL Configuration</b>, allow your hosted app address and its <code>/auth/callback</code> URL.</li>
-        <li>In Inngest, sync <code>https://your-app.vercel.app/api/inngest</code>. Confirm the app&apos;s functions and hourly schedule appear in the same environment as your keys.</li>
+        <li>Open <Link href="/prospecting">Lead discovery</Link> while signed in as the configured workspace owner. Complete any pending connection checks.</li>
+        <li>Review the proposed Hunter targeting and daily limits. Restoration uses the earlier Hunter targeting when it is available, keeps your current daily budgets and collection note, and proposes a <b>6-hour</b> interval.</li>
+        <li>Click <b>Restore Hunter discovery</b>. This restores targeting for your signed-in workspace and queues its first Hunter run.</li>
+        <li>Open <b>Run history</b>. Confirm the run starts and finishes, then open <Link href="/?view=leads">Leads</Link> to review any saved contacts and their sources.</li>
       </ol>
-      <p>If deployment protection blocks Inngest, open <b>Vercel → your project → Settings → Deployment Protection → Protection Bypass for Automation</b>. Create a secret and paste it into the Inngest integration&apos;s <b>Deployment protection key</b>, save, then redeploy/resync. This secret differs from the Event key and Signing key. See the <External href="https://www.inngest.com/docs/durable-execution/deploying-functions/platforms/vercel">Inngest Vercel guide</External>.</p>
-      <p>Hosted scheduling continues while your computer is off, provided the services and quotas remain available. Inngest checks due runs hourly, so the interval is not an exact-to-the-minute promise.</p>
+      <p>Keep Premium pagination off unless your Hunter plan supports it. Basic discovery rotates country/keyword targeting and skips companies already processed; it can save zero new contacts when those results are exhausted. Pagination can extend coverage when account access and credits permit it.</p>
+      <p>The worker checks company details and country, finds published business contacts, verifies eligible email addresses, applies your fit threshold, and saves qualifying prospects. Existing leads and suppressed addresses are skipped. It does not manufacture project requirements, send messages, or submit proposals.</p>
+      <p>Check Hunter usage alongside the app&apos;s daily limits. API attempts count reserved requests, including interrupted ones; they are not a billing-credit estimate. Restoring the flow does not promise the same 14 contacts again or a minimum number of new contacts each day.</p>
     </section>
+
     <section className="panel">
-      <h2 style={{ display: 'flex', alignItems: 'center', gap: 9 }}><CheckCircle2 size={19} /> 4. Save targeting and inspect the first run</h2>
-      <ol>
-        <li>Open <Link href="/prospecting">Lead discovery</Link> and sign in as your configured owner. Confirm the project-request database, Tavily, owner, and scheduler checks are ready.</li>
-        <li>Choose <b>Website development</b>, <b>Application development</b>, or both. Choose target countries, project-related keywords, a maximum request age, and conservative daily search/request limits.</li>
-        <li>Record your actual basis and review process for collecting relevant public requests. Click <b>Save targeting</b>, then <b>Start automatic discovery</b>, then <b>Run discovery now</b>.</li>
-        <li>Open <b>Run history</b> to inspect progress. A queued run has not necessarily executed. A completed run may correctly save no requests when the evidence is incomplete or the work is expired.</li>
-        <li>Open <Link href="/inquiries">Project requests</Link>. Click a result to inspect the exact public request, required service, source platform, original URL, and dates before responding through the original platform.</li>
-        <li>Use <b>Pause discovery</b> to stop future requests and saves. An already-started provider request may finish, but the worker checks again before saving.</li>
-      </ol>
-      <p>The app rejects company marketing pages, supplier offers, employment listings, expired/closed work, missing source text, unclear country, and insufficient publication evidence. It uses the date stated in the page&apos;s request text; a search engine&apos;s estimated publication/update date alone is not enough. Strict filtering can produce zero results and does not guarantee any number of opportunities.</p>
-      <p>Each saved request has its own source URL. A useful request can be saved without an email address: the original platform is the response route, and no contact address is invented. The popup labels describe the public request and publication platform; private search terms and private search activity remain unavailable.</p>
-      <p>The new flow does not need AI summaries and does not send email or submit proposals automatically. Use it for relevant published buyer requests, review the posting&apos;s availability and response terms, and follow the <External href="https://www.tavily.com/terms">provider&apos;s terms</External>.</p>
-      <p>The integration uses basic search. Review <External href="https://docs.tavily.com/documentation/api-credits">Tavily&apos;s current credit rules</External> and your account usage. The app&apos;s request cap counts API calls, not money or guaranteed saved opportunities.</p>
+      <h2 style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Cloud size={19} /> 4. Confirm the hosted schedule</h2>
+      <p>Keep your existing Vercel and Inngest accounts. After deployment, open <External href="https://app.inngest.com/">Inngest Production</External> and sync the app endpoint:</p>
+      <pre>https://xchop-agent.vercel.app/api/inngest</pre>
+      <p>For another deployment, replace that host with your own production address. Confirm both the discovery worker and its hourly schedule appear in the same Inngest environment as your Event key and Signing key.</p>
+      <p>If Vercel deployment protection blocks the endpoint, keep the existing automation bypass configured in the Inngest integration. See the <External href="https://www.inngest.com/docs/durable-execution/deploying-functions/platforms/vercel">Inngest Vercel guide</External>. Keep <code>INNGEST_DEV</code> unset in production.</p>
+      <p>Scheduled runs continue while your computer is off when the hosted services, account access, and credits are available. The schedule checks once an hour and starts due work on an hourly check. Use <b>Pause discovery</b> to stop future requests and saves.</p>
     </section>
+
     <section className="panel">
-      <h2>Local testing with two terminals</h2>
-      <p>Add <code>INNGEST_DEV=1</code> to <code>.env.local</code> with <code>APP_URL=http://localhost:3000</code>. Run these in separate terminals:</p>
+      <h2>Local development and optional drafts</h2>
+      <p>For a local copy, stop the development server with <b>Ctrl+C</b>, run <code>git pull origin main</code> and <code>npm ci</code>, and keep your private <code>.env.local</code>. Use <code>APP_URL=http://localhost:3000</code> and <code>INNGEST_DEV=1</code> locally, then start these in separate terminals:</p>
       <pre>{`# Terminal 1\nnpm run dev\n\n# Terminal 2\nnpm run dev:jobs`}</pre>
-      <p>Keep both terminals open. Local scheduling stops when either service or your computer is off. Keep <code>INNGEST_DEV</code> out of production. If Next.js chooses another port, update <code>APP_URL</code> and use <code>npx inngest-cli@latest dev -u http://localhost:YOUR-PORT/api/inngest</code> in terminal 2.</p>
-      <div className="setup-actions"><Link href="/prospecting" className="button primary">Open discovery →</Link><Link href="/inquiries" className="button outline">View project requests</Link><Link href="/setup" className="button outline">Check Supabase</Link></div>
+      <p>Both terminals must remain running for local jobs. Local discovery stops when your computer is off. Optional Anthropic summary drafts need their own configured account and model; leave AI off until you choose to enable it. Drafts stay for review and do not establish a buyer&apos;s need or send outreach.</p>
+      <div className="setup-actions"><Link href="/prospecting" className="button primary">Open lead discovery →</Link><Link href="/?view=leads" className="button outline">View saved leads</Link><Link href="/setup" className="button outline">Check Supabase</Link></div>
     </section>
   </main>;
 }

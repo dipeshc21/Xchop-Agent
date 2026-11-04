@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runProspecting, hasRecentVerification, normalizeProspectDomain, type DurableStep } from '../lib/prospecting/runner';
-import { RepositoryError, type ClaimedRun, type PersistPayload, type ProspectingRepository, type Reservation } from '../lib/prospecting/repository';
+import { RepositoryError, RequestCheckpointError, type ClaimedRun, type PersistPayload, type ProspectingRepository, type Reservation } from '../lib/prospecting/repository';
 import { defaultProspectingConfig, type CompanyFacts, type EmailVerification, type FoundContact } from '../lib/prospecting/types';
 import { getProspectingReadiness, serviceRoleConfiguration } from '../lib/prospecting/server-config';
 import { ProviderError } from '../lib/prospecting/hunter';
@@ -82,6 +82,18 @@ test('the real workflow reserves every provider call and saves only sourced veri
   assert.equal(state.persisted[0].contact.provenance, 'found');
   assert.equal(state.persisted[0].verification.checkedAt, verified.checkedAt);
   assert.ok(state.persisted[0].score.score >= 65); assert.equal(state.persisted[0].aiDraft, null);
+});
+
+test('legacy Hunter snapshots remain readable while project-request snapshots cannot spend Hunter credits', async () => {
+  const legacy = fixture();
+  const mutable = legacy.state.config as Partial<typeof legacy.state.config>;
+  delete mutable.discoveryMode; delete mutable.services; delete mutable.maxAgeDays;
+  const restored = await runProspecting(input, step, legacy.dependencies);
+  assert.equal(restored.leadsSaved, 1); assert.deepEqual(legacy.state.calls, ['discover', 'enrich', 'contacts', 'verify']);
+  const project = fixture(); project.state.config.discoveryMode = 'project_requests';
+  const rejected = await runProspecting(input, step, project.dependencies);
+  assert.equal(rejected.status, 'cancelled'); assert.equal(rejected.errorCode, 'configuration');
+  assert.deepEqual(project.state.calls, []); assert.equal(project.state.persisted.length, 0);
 });
 
 test('unknown and excluded actual company countries stop before finding or verifying contacts', async () => {
@@ -166,6 +178,35 @@ test('a budget cap or uncertain paid request stops before contacting the provide
     const result = await runProspecting(input, step, dependencies);
     assert.deepEqual(state.calls, []); assert.equal(state.persisted.length, 0);
     assert.equal(result.status, status === 'budget_exhausted' ? 'completed' : 'failed');
+  }
+});
+
+test('recorded Hunter failures retain their safe cause without repeating provider requests', async () => {
+  for (const code of ['AUTHENTICATION', 'PLAN', 'PAGINATION', 'QUOTA', 'RATE_LIMIT', 'UNAVAILABLE', 'INVALID_RESPONSE', 'INVALID_INPUT']) {
+    const { state, dependencies } = fixture();
+    state.reservationOverride = { status: 'uncertain', state: 'failed', reason: code };
+    const result = await runProspecting(input, step, dependencies);
+    assert.equal(result.status, 'failed'); assert.equal(result.errorCode, code.toLowerCase()); assert.deepEqual(state.calls, []);
+  }
+  const { state, dependencies } = fixture();
+  state.reservationOverride = { status: 'uncertain', state: 'failed', reason: 'private-provider-detail' };
+  const result = await runProspecting(input, step, dependencies);
+  assert.equal(result.errorCode, 'recorded_failure'); assert.ok(!result.message.includes('private-provider-detail'));
+});
+
+test('checkpoint storage failures are durable outcomes and cannot repeat a paid Hunter callback', async () => {
+  for (const code of ['checkpoint_rejected', 'checkpoint_unavailable'] as const) {
+    const { state, repository, dependencies } = fixture(); const checkpoints = new Map<string, unknown>();
+    repository.complete = async () => { throw new RequestCheckpointError(code); };
+    const durable: DurableStep = { async sleep() {}, async run(id, task) {
+      if (checkpoints.has(id)) return checkpoints.get(id) as never;
+      const result = await task(); checkpoints.set(id, structuredClone(result)); return result;
+    } };
+    state.finishThrows = true;
+    await assert.rejects(runProspecting(input, durable, dependencies), RepositoryError);
+    const result = await runProspecting(input, durable, dependencies);
+    assert.equal(result.errorCode, code); assert.equal(result.status, 'failed');
+    assert.deepEqual(state.calls, ['discover']); assert.equal(state.persisted.length, 0);
   }
 });
 
@@ -276,7 +317,7 @@ test('verification date bounds and domain normalization reject ambiguous or loca
   for (const value of ['localhost', '127.0.0.1', 'https://name:password@agency.com', 'https://agency.com:8888', 'fake.invalid']) assert.equal(normalizeProspectDomain(value), null);
 });
 
-test('server credentials and project search readiness are fail-closed without exposing secrets', () => {
+test('Hunter readiness is source-specific and optional AI never blocks verified-contact discovery', () => {
   const names = ['NODE_ENV', 'NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'HUNTER_API_KEY', 'TAVILY_API_KEY', 'INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY', 'INNGEST_DEV', 'ANTHROPIC_API_KEY', 'ANTHROPIC_MODEL'];
   const old = Object.fromEntries(names.map(name => [name, process.env[name]]));
   try {
@@ -288,10 +329,16 @@ test('server credentials and project search readiness are fail-closed without ex
     const config = { ...defaultProspectingConfig, lawfulBasis: 'Relevant business partnership research.' };
     assert.equal(getProspectingReadiness(ownerId, config).ready, true);
     delete process.env.ANTHROPIC_API_KEY; delete process.env.ANTHROPIC_MODEL;
-    assert.equal(getProspectingReadiness(ownerId, { ...config, aiEnabled: true }).ready, true, 'Legacy AI settings cannot block evidence-based project search.');
+    assert.equal(getProspectingReadiness(ownerId, { ...config, aiEnabled: true }).ready, true, 'Optional AI cannot block sourced Hunter contact discovery.');
     delete process.env.TAVILY_API_KEY;
-    assert.equal(getProspectingReadiness(ownerId, config).ready, false, 'A Hunter key does not supply project-request search.');
+    assert.equal(getProspectingReadiness(ownerId, config).ready, true, 'Hunter discovery does not require Tavily.');
+    assert.equal(getProspectingReadiness(ownerId, { ...config, discoveryMode: 'project_requests' }).ready, false, 'A Hunter key does not supply archive project-request search.');
     process.env.TAVILY_API_KEY = 'tvly-' + 'x'.repeat(40);
+    assert.equal(getProspectingReadiness(ownerId, { ...config, discoveryMode: 'project_requests' }).ready, true);
+    delete process.env.HUNTER_API_KEY;
+    assert.equal(getProspectingReadiness(ownerId, config).ready, false, 'Tavily does not supply Hunter contact discovery.');
+    assert.equal(getProspectingReadiness(ownerId, { ...config, discoveryMode: 'project_requests' }).ready, true);
+    process.env.HUNTER_API_KEY = 'a'.repeat(40);
     process.env.INNGEST_DEV = '1'; assert.equal(getProspectingReadiness(ownerId, config).ready, false);
     assert.doesNotMatch(JSON.stringify(getProspectingReadiness(ownerId, config)), /sb_secret_|signkey-|event-xxx/);
   } finally { for (const name of names) { if (old[name] === undefined) delete process.env[name]; else process.env[name] = old[name]; } }

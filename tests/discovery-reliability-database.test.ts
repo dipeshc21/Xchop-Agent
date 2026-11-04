@@ -11,7 +11,9 @@ const other = '88000000-0000-4000-8000-000000000002';
 const token = 'reliability-repair-worker-lease-token';
 const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
 const monthDay = (value: string) => new Date(`${value}T00:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
-const config = { ...defaultProspectingConfig, enabled: true, countries: ['US', 'GB'], dailyLeadLimit: 20,
+const config = { ...defaultProspectingConfig, discoveryMode: 'project_requests' as const,
+  services: ['website', 'application'], maxAgeDays: 30, intervalHours: 24,
+  keywords: ['website development', 'application development'], enabled: true, countries: ['US', 'GB'], dailyLeadLimit: 20,
   lawfulBasis: 'Review original public requests and respond only through the published project response route.' };
 const requestText = 'We are seeking an external development agency to rebuild our customer website.';
 function payload(id: string, sourceText = `Published: ${day(-1)}\nBuyer country: United States\n${requestText}`, changes: Partial<ProjectEvidence> = {}) {

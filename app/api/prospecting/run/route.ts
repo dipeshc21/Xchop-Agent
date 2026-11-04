@@ -10,13 +10,13 @@ export async function POST(request: NextRequest) {
   const session = await discoverySession(request);
   if (session.response) return session.response;
   try {
-    const migration = await session.db.rpc('project_discovery_readiness');
+    const migration = await session.db.rpc('hunter_discovery_readiness');
     if (migration.error) return discoveryDatabaseError(migration.error);
-    if (migration.data?.schema_version !== 6) return discoveryDatabaseError(null);
+    if (migration.data?.schema_version !== 9) return discoveryDatabaseError(null);
     const settings = await session.db.from('prospecting_settings').select('data').eq('owner_id', session.user.id).maybeSingle();
     if (settings.error) return discoveryDatabaseError(settings.error);
     const parsed = prospectingConfigSchema.safeParse(settings.data?.data);
-    if (!parsed.success || !parsed.data.enabled) return NextResponse.json({ error: 'Save your targeting and enable automatic discovery first.' }, { status: 409 });
+    if (!parsed.success || parsed.data.discoveryMode !== 'company_contacts' || !parsed.data.enabled) return NextResponse.json({ error: 'Restore or save your Hunter targeting and enable automatic discovery first.' }, { status: 409 });
     if (!getProspectingReadiness(session.user.id, parsed.data).ready) return NextResponse.json({ error: 'Complete the connection checks before starting discovery.' }, { status: 409 });
     const { data: runId, error } = await session.db.rpc('queue_prospecting_run');
     if (error) return discoveryDatabaseError(error);

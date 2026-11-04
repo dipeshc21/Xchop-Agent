@@ -1,7 +1,15 @@
 import { inngest, dispatchProspectingRun, prospectingEventName, prospectingRequestSchema } from '@/lib/inngest/client';
 import { getProspectingReadiness } from '@/lib/prospecting/server-config';
 import { queueDueProspectingRun } from '@/lib/prospecting/repository';
-import { runProjectDiscovery } from '@/lib/intent/runner';
+import { runProspecting } from '@/lib/prospecting/runner';
+import { supabaseAdmin } from '@/lib/supabase/admin';
+
+async function hunterDatabaseReady() {
+  try {
+    const { data, error } = await supabaseAdmin().rpc('hunter_discovery_readiness');
+    return !error && data?.schema_version === 9;
+  } catch { return false; }
+}
 
 export const prospectorSchedule = inngest.createFunction({
   id: 'prospector-agent-schedule',
@@ -14,6 +22,9 @@ export const prospectorSchedule = inngest.createFunction({
   if (!getProspectingReadiness(ownerId).ready) {
     return { status: 'disabled', message: 'Prospecting connections are incomplete. No providers were called.' };
   }
+  if (!await hunterDatabaseReady()) {
+    return { status: 'disabled', message: 'Install the Hunter restoration database update 009 before scheduled contact discovery. No providers were called.' };
+  }
   const runId = await step.run('ProspectorAgent-queue-due-run', () => queueDueProspectingRun(ownerId));
   if (!runId) return { status: 'idle', message: 'Discovery is paused, not due, or at its configured limit.' };
   await step.run('ProspectorAgent-dispatch-durable-run', () => dispatchProspectingRun(ownerId, runId));
@@ -23,7 +34,7 @@ export const prospectorSchedule = inngest.createFunction({
 
 export const prospectorAgent = inngest.createFunction({
   id: 'prospector-agent',
-  name: 'ProspectorAgent · find evidenced project requests',
+  name: 'ProspectorAgent · Hunter verified business contacts',
   triggers: { event: prospectingEventName },
   concurrency: { limit: 1, key: 'event.data.ownerId' },
   retries: 3,
@@ -33,8 +44,12 @@ export const prospectorAgent = inngest.createFunction({
     logger.warn('ProspectorAgent rejected an invalid event or an unconfigured owner.');
     return { status: 'disabled', message: 'No discovery providers were called.' };
   }
-  logger.info('ProspectorAgent accepted a configured public project-request run.');
-  const result = await runProjectDiscovery({
+  if (!await hunterDatabaseReady()) {
+    logger.warn('ProspectorAgent requires the Hunter restoration database update before running.');
+    return { status: 'disabled', message: 'Install the Hunter restoration database update 009. No discovery providers were called.' };
+  }
+  logger.info('ProspectorAgent accepted a configured Hunter contact-discovery run.');
+  const result = await runProspecting({
     ownerId: payload.data.ownerId,
     runId: payload.data.runId,
     // One claim token survives this execution's retries. Hourly recovery is a new

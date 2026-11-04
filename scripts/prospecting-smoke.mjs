@@ -56,7 +56,6 @@ const user = {
 let config = { ...defaultProspectingConfig, lawfulBasis: 'HTTP fixture basis for reviewing relevant business prospects.' };
 let migrationMissing = false;
 let contactMigrationMissing = false;
-let reliabilityMigrationMissing = false;
 const suppressionEntries = [{ id: 'suppression-fixture', email: 'blocked@example.test', reason: 'do-not-contact', created_at: '2026-01-01T00:00:00Z' }];
 const requests = [];
 const mock = createServer(async (request, response) => {
@@ -70,21 +69,36 @@ const mock = createServer(async (request, response) => {
   }
   if (request.method === 'GET' && url.pathname === '/auth/v1/user') { reply(user); return; }
   const discoveryTable = ['/rest/v1/prospecting_settings', '/rest/v1/prospecting_runs', '/rest/v1/project_requests'].includes(url.pathname);
-  if (discoveryTable || ['/rest/v1/suppression_list', '/rest/v1/leads', '/rest/v1/enrichment_data'].includes(url.pathname)) {
+  if (discoveryTable || ['/rest/v1/settings', '/rest/v1/suppression_list', '/rest/v1/leads', '/rest/v1/enrichment_data'].includes(url.pathname)) {
     if (url.searchParams.get('owner_id') !== `eq.${ownerId}`) {
       reply({ message: 'Owner filter is mandatory in this regression fixture.' }, 500); return;
     }
   }
-  if (migrationMissing && (discoveryTable || ['/rest/v1/rpc/prospecting_usage', '/rest/v1/rpc/project_discovery_readiness'].includes(url.pathname))) {
+  if (migrationMissing && (discoveryTable || ['/rest/v1/rpc/prospecting_usage', '/rest/v1/rpc/project_discovery_readiness', '/rest/v1/rpc/hunter_discovery_readiness'].includes(url.pathname))) {
     reply({ code: discoveryTable ? 'PGRST205' : 'PGRST202', message: 'MOCK_PRIVATE_DATABASE_DETAIL_MUST_NOT_LEAK' }, 404); return;
   }
   if (request.method === 'POST' && url.pathname === '/rest/v1/rpc/project_discovery_readiness') {
     reply({ schema_version: 6 }); return;
   }
-  if (request.method === 'POST' && url.pathname === '/rest/v1/rpc/project_discovery_reliability_readiness') {
-    if (reliabilityMigrationMissing) reply({ code: 'PGRST202', message: 'MOCK_PRIVATE_DATABASE_DETAIL_MUST_NOT_LEAK' }, 404);
-    else reply({ schema_version: 8 });
-    return;
+  if (request.method === 'POST' && url.pathname === '/rest/v1/rpc/hunter_discovery_readiness') {
+    reply({ schema_version: 9 }); return;
+  }
+  if (request.method === 'POST' && url.pathname === '/rest/v1/rpc/hunter_restoration_config') {
+    reply({ ...defaultProspectingConfig, enabled: true, lawfulBasis: config.lawfulBasis, dailyLeadLimit: config.dailyLeadLimit, dailyRequestLimit: config.dailyRequestLimit }); return;
+  }
+  if (request.method === 'POST' && url.pathname === '/rest/v1/rpc/restore_hunter_discovery') {
+    config = { ...defaultProspectingConfig, enabled: true, lawfulBasis: config.lawfulBasis, dailyLeadLimit: config.dailyLeadLimit, dailyRequestLimit: config.dailyRequestLimit };
+    reply({ data: config, version: 3, next_run_at: new Date().toISOString() }); return;
+  }
+  if (request.method === 'POST' && url.pathname === '/rest/v1/rpc/queue_prospecting_run') {
+    assert.equal(config.discoveryMode, 'company_contacts'); assert.equal(config.enabled, true);
+    reply(runId); return;
+  }
+  if (request.method === 'POST' && url.pathname === '/rest/v1/rpc/workspace_dashboard') {
+    reply({ leadCount: 0, sentCount: 0, replyRate: 0, wonCount: 0, pipelineValue: 0, quoteCount: 0, revenue: [], funnel: [], markets: [], attention: [] }); return;
+  }
+  if (request.method === 'GET' && url.pathname === '/rest/v1/settings') {
+    reply([{ data: {} }]); return;
   }
   if (request.method === 'GET' && url.pathname === '/rest/v1/project_requests') {
     const dailyView = url.searchParams.getAll('discovered_at').length > 0;
@@ -122,11 +136,11 @@ const mock = createServer(async (request, response) => {
   if (request.method === 'GET' && url.pathname === '/rest/v1/prospecting_runs') {
     const columns = url.searchParams.get('select');
     if (!columns || columns === '*' || columns.includes('claim_token')) { reply({ message: 'Run query requested unsafe columns.' }, 500); return; }
-    assert.equal(url.searchParams.get('config_snapshot->>discoveryMode'), 'eq.project_requests', 'Legacy company runs must not appear as project requests.');
+    assert.match(url.searchParams.get('or') ?? '', /config_snapshot->>discoveryMode.is.null,config_snapshot->>discoveryMode.eq.company_contacts/, 'Hunter history must include legacy snapshots and exclude project-mode runs.');
     reply([{ id: runId, owner_id: ownerId, status: 'completed', trigger_source: 'scheduled', created_at: '2026-01-01T00:00:00Z', started_at: '2026-01-01T00:01:00Z', finished_at: '2026-01-01T00:02:00Z', companies_found: 7, leads_saved: 3, skipped_count: 4, request_count: 12, error_code: null, message: 'HTTP regression completed.' }]); return;
   }
   if (request.method === 'POST' && url.pathname === '/rest/v1/rpc/prospecting_usage') {
-    reply({ requests: 12, leads_saved: 17, project_requests_saved: 3, day_start: '2026-01-01T00:00:00Z' }); return;
+    reply({ requests: 12, leads_saved: 17, company_leads_saved: 14, project_requests_saved: 3, day_start: '2026-01-01T00:00:00Z' }); return;
   }
   if (request.method === 'POST' && ['/rest/v1/rpc/save_prospecting_settings', '/rest/v1/rpc/suppress_workspace_email'].includes(url.pathname)) {
     try {
@@ -145,6 +159,7 @@ const mock = createServer(async (request, response) => {
   }
   if (request.method === 'GET' && url.pathname === '/rest/v1/suppression_list') { reply(suppressionEntries); return; }
   if (request.method === 'GET' && url.pathname === '/rest/v1/leads') {
+    response.setHeader('Content-Range', '*/0');
     reply(url.searchParams.get('id') === `eq.${leadId}` ? [{ id: leadId }] : []); return;
   }
   if (request.method === 'GET' && url.pathname === '/rest/v1/enrichment_data') {
@@ -177,35 +192,46 @@ try {
   const cookie = Array.from(cookies, ([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`).join('; ');
   const origin = 'http://127.0.0.1:3217';
   const blockedLog = join(scratch, 'blocked.log');
+  const dispatchedLog = join(scratch, 'dispatched.log');
   await writeFile(blockedLog, '');
+  await writeFile(dispatchedLog, '');
   const guard = join(scratch, 'localhost-fetch-only.mjs');
   await writeFile(guard, `import { appendFileSync } from 'node:fs';
 const originalFetch = globalThis.fetch;
 globalThis.fetch = function(input, init) {
   const value = typeof input === 'string' || input instanceof URL ? input : input.url;
   const url = new URL(value);
+  if (url.hostname === 'inn.gs' && url.pathname.startsWith('/e/')) {
+    appendFileSync(${JSON.stringify(dispatchedLog)}, 'fixture-event-dispatched\\n');
+    return Promise.resolve(new Response(JSON.stringify({ ids: ['fixture-dispatch'], status: 200 }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+  }
   if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) {
     appendFileSync(${JSON.stringify(blockedLog)}, url.origin + '\\n');
     throw new Error('HTTP regression blocks external provider requests.');
   }
   return originalFetch(input, init);
 };\n`);
-  child = spawn(process.execPath, ['--import', pathToFileURL(guard).href, 'node_modules/next/dist/bin/next', 'start', '--hostname', '127.0.0.1', '--port', '3217'], {
-    cwd: new URL('..', import.meta.url), stdio: ['ignore', 'pipe', 'pipe'], env: {
-      ...process.env, NEXT_PUBLIC_SUPABASE_URL: mockOrigin, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: publishableKey, NEXT_PUBLIC_SUPABASE_ANON_KEY: '',
-      HUNTER_API_KEY: '', TAVILY_API_KEY: '', SUPABASE_SERVICE_ROLE_KEY: '', AUTOMATION_OWNER_ID: '', INNGEST_EVENT_KEY: '', INNGEST_SIGNING_KEY: '', INNGEST_DEV: '',
-      ANTHROPIC_API_KEY: '', ANTHROPIC_MODEL: '', APP_URL: origin, NEXT_TELEMETRY_DISABLED: '1',
-    },
-  });
-  child.stdout.on('data', data => output += data); child.stderr.on('data', data => output += data);
-  child.on('exit', () => { childExited = true; });
-  let ready = false;
-  for (let attempt = 0; attempt < 60; attempt++) {
-    if (childExited) break;
-    try { if ((await fetch(`${origin}/login`, { redirect: 'manual', signal: AbortSignal.timeout(1500) })).ok) { ready = true; break; } } catch { /* Temporary test server startup only. */ }
-    await new Promise(resolve => setTimeout(resolve, 250));
-  }
-  assert.ok(ready, `Temporary Next server did not become ready.\n${output}`);
+  const startApp = async (serverCredentials = {}) => {
+    childExited = false;
+    child = spawn(process.execPath, ['--import', pathToFileURL(guard).href, 'node_modules/next/dist/bin/next', 'start', '--hostname', '127.0.0.1', '--port', '3217'], {
+      cwd: new URL('..', import.meta.url), stdio: ['ignore', 'pipe', 'pipe'], env: {
+        ...process.env, NEXT_PUBLIC_SUPABASE_URL: mockOrigin, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: publishableKey, NEXT_PUBLIC_SUPABASE_ANON_KEY: '',
+        HUNTER_API_KEY: '', TAVILY_API_KEY: '', SUPABASE_SERVICE_ROLE_KEY: '', AUTOMATION_OWNER_ID: '', INNGEST_EVENT_KEY: '', INNGEST_SIGNING_KEY: '', INNGEST_DEV: '',
+        ANTHROPIC_API_KEY: '', ANTHROPIC_MODEL: '', APP_URL: origin, NEXT_TELEMETRY_DISABLED: '1',
+        ...serverCredentials,
+      },
+    });
+    child.stdout.on('data', data => output += data); child.stderr.on('data', data => output += data);
+    child.on('exit', () => { childExited = true; });
+    let ready = false;
+    for (let attempt = 0; attempt < 60; attempt++) {
+      if (childExited) break;
+      try { if ((await fetch(`${origin}/login`, { redirect: 'manual', signal: AbortSignal.timeout(1500) })).ok) { ready = true; break; } } catch { /* Temporary test server startup only. */ }
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    assert.ok(ready, `Temporary Next server did not become ready.\n${output}`);
+  };
+  await startApp();
   const headers = { cookie };
   const mutation = { ...headers, Origin: origin, 'Content-Type': 'application/json' };
 
@@ -213,11 +239,11 @@ globalThis.fetch = function(input, init) {
   const guide = await fetch(`${origin}/prospecting/setup`);
   assert.equal(guide.status, 200);
   const guideHtml = await guide.text();
-  assert.match(guideHtml, /Tavily/); assert.match(guideHtml, /Inngest/);
-  assert.match(guideHtml, /Copy discovery-repair SQL/);
-  const sql = await fetch(`${origin}/migrations/006_project_requests.sql`);
+  assert.match(guideHtml, /Hunter/); assert.match(guideHtml, /Inngest/);
+  assert.match(guideHtml, /Copy Hunter restoration SQL/);
+  const sql = await fetch(`${origin}/migrations/009_restore_hunter_discovery.sql`);
   assert.equal(sql.status, 200);
-  assert.ok((await sql.text()) === (await readFile(new URL('../supabase/migrations/006_project_requests.sql', import.meta.url), 'utf8')), 'Public copy SQL must match the reviewed migration exactly.');
+  assert.ok((await sql.text()) === (await readFile(new URL('../supabase/migrations/009_restore_hunter_discovery.sql', import.meta.url), 'utf8')), 'Public copy SQL must match the reviewed migration exactly.');
   const repairSql = await fetch(`${origin}/migrations/008_discovery_reliability.sql`);
   assert.equal(repairSql.status, 200);
   assert.equal(await repairSql.text(), await readFile(new URL('../supabase/migrations/008_discovery_reliability.sql', import.meta.url), 'utf8'));
@@ -234,16 +260,18 @@ globalThis.fetch = function(input, init) {
   assert.equal(statusResponse.status, 200);
   const status = await statusResponse.json();
   assert.equal(status.migrationReady, true); assert.equal(status.enabled, false); assert.equal(status.readiness.ready, false);
-  assert.deepEqual(status.usage, { requestsToday: 12, leadsToday: 3, dayStart: '2026-01-01T00:00:00Z' });
+  assert.deepEqual(status.usage, { requestsToday: 12, leadsToday: 14, dayStart: '2026-01-01T00:00:00Z' });
   assert.equal(status.runs[0].leads_saved, 3); assert.equal(status.runs[0].id, runId);
-  assert.equal(status.repairReady, true); assert.equal(status.health.code, 'paused');
-  reliabilityMigrationMissing = true;
-  const unrepairedResponse = await fetch(`${origin}/api/prospecting`, { headers });
-  assert.equal(unrepairedResponse.status, 200, 'The repair probe must not block existing discovery reads.');
-  const unrepaired = await unrepairedResponse.json();
-  assert.equal(unrepaired.repairReady, false); assert.equal(unrepaired.migrationReady, true);
-  assert.ok(!JSON.stringify(unrepaired).includes('MOCK_PRIVATE_DATABASE_DETAIL'));
-  reliabilityMigrationMissing = false;
+  assert.equal(status.provider, 'hunter'); assert.equal(status.restorationPending, false); assert.equal(status.health.code, 'paused');
+  const previousConfig = config;
+  config = { ...config, discoveryMode: 'project_requests', enabled: true, keywords: ['website development'] };
+  const pending = await (await fetch(`${origin}/api/prospecting`, { headers })).json();
+  assert.equal(pending.restorationPending, true); assert.equal(pending.enabled, false);
+  assert.equal(pending.config.discoveryMode, 'company_contacts'); assert.equal(pending.config.intervalHours, 6);
+  assert.deepEqual(pending.config.keywords, defaultProspectingConfig.keywords);
+  assert.equal((await fetch(`${origin}/api/prospecting/restore`, { method: 'POST', headers: mutation })).status, 409);
+  assert.ok(!requests.some(item => item.path.endsWith('/restore_hunter_discovery')), 'Missing Hunter connections must block the source switch.');
+  config = previousConfig;
   assert.ok(!JSON.stringify(status).includes(accessToken)); assert.ok(!JSON.stringify(status).includes('claim_token'));
   const inquiriesPage = await fetch(`${origin}/inquiries`, { headers, redirect: 'manual' });
   assert.equal(inquiriesPage.status, 200);
@@ -279,8 +307,8 @@ globalThis.fetch = function(input, init) {
   assert.equal('contact_email' in compatible.inquiries[0], false, 'Missing storage must not invent contact details.');
   contactMigrationMissing = false;
   const legacyView = await fetch(`${origin}/?view=leads`, { headers, redirect: 'manual' });
-  assert.equal(legacyView.status, 307);
-  assert.equal(new URL(legacyView.headers.get('location'), origin).pathname, '/inquiries');
+  assert.equal(legacyView.status, 200);
+  assert.match(await legacyView.text(), /Business prospects/);
 
   migrationMissing = true;
   const missingResponse = await fetch(`${origin}/api/prospecting`, { headers });
@@ -309,7 +337,7 @@ globalThis.fetch = function(input, init) {
   const suppress = await fetch(`${origin}/api/suppression`, { method: 'POST', headers: mutation, body: JSON.stringify({ email: ' New@Example.test ', reason: 'do-not-contact' }) });
   assert.equal(suppress.status, 201);
   assert.equal(suppressionEntries[0].email, 'new@example.test');
-  for (const [path, method, body] of [['/api/prospecting', 'PUT', pausedConfig], ['/api/prospecting/run', 'POST', {}], ['/api/suppression', 'POST', { email: 'bad@example.test', reason: 'bounced' }]]) {
+  for (const [path, method, body] of [['/api/prospecting', 'PUT', pausedConfig], ['/api/prospecting/run', 'POST', {}], ['/api/prospecting/restore', 'POST', {}], ['/api/suppression', 'POST', { email: 'bad@example.test', reason: 'bounced' }]]) {
     const before = requests.length;
     assert.equal((await fetch(`${origin}${path}`, { method, headers: { ...mutation, Origin: 'https://other-site.example' }, body: JSON.stringify(body) })).status, 403);
     assert.ok(!requests.slice(before).some(item => item.path.startsWith('/rest/v1/')), 'Cross-site mutations must not access owner records.');
@@ -329,8 +357,38 @@ globalThis.fetch = function(input, init) {
   for (const method of ['GET', 'POST', 'PUT']) {
     assert.equal((await fetch(`${origin}/api/inngest`, { method })).status, 503, 'Unsigned, unconfigured background endpoint must fail closed.');
   }
+  assert.equal(await readFile(dispatchedLog, 'utf8'), '', 'Keyless and paused requests must not dispatch jobs.');
+  const exited = once(child, 'exit'); child.kill('SIGTERM'); await exited;
+
+  // Restart with fixture credentials to exercise the complete owner restoration
+  // route. Inngest dispatch is intercepted above; no provider receives a request.
+  config = { ...previousConfig, discoveryMode: 'project_requests', enabled: true, keywords: ['website development'], intervalHours: 24 };
+  await startApp({
+    HUNTER_API_KEY: 'a'.repeat(40),
+    SUPABASE_SERVICE_ROLE_KEY: 'sb_secret_hunter_smoke_fixture_credential_123456789',
+    AUTOMATION_OWNER_ID: ownerId,
+    INNGEST_EVENT_KEY: 'fixture-event-key-12345678901234567890',
+    INNGEST_SIGNING_KEY: 'fixture-signing-key-12345678901234567890',
+  });
+  assert.equal((await fetch(`${origin}/api/prospecting/restore`, { method: 'POST', headers: { Origin: origin } })).status, 401);
+  const readyPreview = await (await fetch(`${origin}/api/prospecting`, { headers })).json();
+  assert.equal(readyPreview.restorationPending, true); assert.equal(readyPreview.readiness.ready, true);
+  assert.equal(requests.filter(item => item.path.endsWith('/restore_hunter_discovery')).length, 0, 'Reading status cannot enable discovery.');
+  const restorationResponse = await fetch(`${origin}/api/prospecting/restore`, { method: 'POST', headers: mutation });
+  const restoration = await restorationResponse.json();
+  assert.equal(restorationResponse.status, 202, JSON.stringify(restoration));
+  assert.equal(restoration.runId, runId); assert.equal(restoration.status, 'queued');
+  assert.equal(config.discoveryMode, 'company_contacts'); assert.equal(config.enabled, true);
+  assert.equal(config.intervalHours, 6);
+  assert.equal(config.dailyLeadLimit, previousConfig.dailyLeadLimit); assert.equal(config.dailyRequestLimit, previousConfig.dailyRequestLimit);
+  assert.equal(requests.filter(item => item.path.endsWith('/restore_hunter_discovery')).length, 1);
+  assert.equal(requests.filter(item => item.path.endsWith('/queue_prospecting_run')).length, 1);
+  assert.equal(await readFile(dispatchedLog, 'utf8'), 'fixture-event-dispatched\n', 'The restored run must dispatch through the scheduler.');
+  const restoredStatus = await (await fetch(`${origin}/api/prospecting`, { headers })).json();
+  assert.equal(restoredStatus.restorationPending, false); assert.equal(restoredStatus.enabled, true);
+  assert.equal(restoredStatus.readiness.ready, true); assert.equal(restoredStatus.provider, 'hunter');
   assert.equal(await readFile(blockedLog, 'utf8'), '', 'No tested route may attempt an external provider fetch.');
-  console.log('PASS: authenticated project requests use owner, age and deadline filters; legacy lead links open request list; request-only counts exclude legacy contacts; migration 006 copy matches; missing schema stays paused; keyless pause and blocked enabling/queueing; research and suppression guards; unsigned jobs fail closed; no external provider calls.');
+  console.log('PASS: Hunter restoration preview and authenticated restore/queue/dispatch, readiness/history/usage, exact009 SQL, saved contact navigation, preserved project archive, owner isolation, keyless pause and blocked paid work, suppression/research guards, and unsigned jobs.');
 } finally {
   if (child && !childExited) { const exit = once(child, 'exit'); child.kill('SIGTERM'); await exit; }
   if (mock.listening) { const closed = once(mock, 'close'); mock.close(); mock.closeAllConnections(); await closed; }

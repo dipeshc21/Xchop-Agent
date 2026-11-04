@@ -12,53 +12,45 @@ export async function GET() {
   if (session.response) return session.response;
   const { db, user } = session;
   try {
-    const migration = await db.rpc('project_discovery_readiness');
-    if (migration.error) {
-      if (!missingMigration(migration.error)) return discoveryDatabaseError(migration.error);
+    const migration = await db.rpc('hunter_discovery_readiness');
+    if (migration.error || migration.data?.schema_version !== 9) {
+      if (migration.error && !missingMigration(migration.error)) return discoveryDatabaseError(migration.error);
       const readiness = getProspectingReadiness(user.id);
       return NextResponse.json({
-        config: defaultProspectingConfig, enabled: false, migrationReady: false,
-        readiness: { ...readiness, ready: false, checks: [...readiness.checks, { id: 'migration', label: 'Project-request database', ready: false, message: migrationMessage }] },
+        provider: 'hunter', config: defaultProspectingConfig, enabled: false, migrationReady: false, restorationPending: true,
+        readiness: { ...readiness, ready: false, checks: [...readiness.checks, { id: 'migration', label: 'Hunter database restoration', ready: false, message: migrationMessage }] },
         runs: [], nextRunAt: null, usage: { requestsToday: 0, leadsToday: 0 },
       }, { headers: { 'Cache-Control': 'private, no-store' } });
     }
-    if (migration.data?.schema_version !== 6) return discoveryDatabaseError(null);
-    const [settings, runs, usage, repair] = await Promise.all([
+    const [settings, runs, usage] = await Promise.all([
       db.from('prospecting_settings').select('data,next_run_at').eq('owner_id', user.id).maybeSingle(),
-      db.from('prospecting_runs').select(runColumns).eq('owner_id', user.id).eq('config_snapshot->>discoveryMode', 'project_requests').order('created_at', { ascending: false }).limit(30),
+      db.from('prospecting_runs').select(runColumns).eq('owner_id', user.id)
+        .or('config_snapshot->>discoveryMode.is.null,config_snapshot->>discoveryMode.eq.company_contacts')
+        .order('created_at', { ascending: false }).limit(30),
       db.rpc('prospecting_usage'),
-      // This additive repair check must not make migration-006 reads unavailable.
-      (async () => {
-        try { return await db.rpc('project_discovery_reliability_readiness'); }
-        catch { return { data: null, error: { code: 'REPAIR_CHECK_UNAVAILABLE' } }; }
-      })(),
     ]);
-    const failures = [settings.error, runs.error, usage.error].filter(Boolean);
-    if (failures.length) {
-      if (failures.every(missingMigration)) {
-        const readiness = getProspectingReadiness(user.id);
-        return NextResponse.json({
-          config: defaultProspectingConfig, enabled: false, migrationReady: false,
-          readiness: { ...readiness, ready: false, checks: [...readiness.checks, { id: 'migration', label: 'Project-request database', ready: false, message: migrationMessage }] },
-          runs: [], nextRunAt: null, usage: { requestsToday: 0, leadsToday: 0 },
-        });
-      }
-      return discoveryDatabaseError(failures[0]);
+    const failure = [settings.error, runs.error, usage.error].find(Boolean);
+    if (failure) return discoveryDatabaseError(failure);
+    const restorationPending = settings.data?.data?.discoveryMode === 'project_requests';
+    let config = settings.data?.data ?? defaultProspectingConfig;
+    if (restorationPending) {
+      const preview = await db.rpc('hunter_restoration_config');
+      if (preview.error) return discoveryDatabaseError(preview.error);
+      config = preview.data;
     }
-    const parsed = prospectingConfigSchema.safeParse(settings.data?.data ?? defaultProspectingConfig);
-    if (!parsed.success || !usage.data || !Number.isSafeInteger(usage.data.requests) || !Number.isSafeInteger(usage.data.project_requests_saved)) {
-      return NextResponse.json({ error: 'Project-request settings or usage could not be read. Check database migration 006 and refresh.' }, { status: 503 });
+    const parsed = prospectingConfigSchema.safeParse(config);
+    if (!parsed.success || parsed.data.discoveryMode !== 'company_contacts' || !usage.data ||
+      !Number.isSafeInteger(usage.data.requests) || !Number.isSafeInteger(usage.data.company_leads_saved)) {
+      return NextResponse.json({ error: 'Hunter settings or usage could not be read. Check restoration migration 009 and refresh.' }, { status: 503 });
     }
+    const enabled = !restorationPending && parsed.data.enabled;
     const readiness = getProspectingReadiness(user.id, parsed.data);
-    const nextRunAt = settings.data?.next_run_at ?? null;
-    const repairReady = !repair.error && repair.data?.schema_version === 8;
+    const nextRunAt = enabled ? settings.data?.next_run_at ?? null : null;
     return NextResponse.json({
-      config: parsed.data, enabled: parsed.data.enabled, migrationReady: true,
-      readiness, repairReady,
-      repairStatus: repairReady ? 'ready' : !repair.error || missingMigration(repair.error) ? 'missing' : 'unavailable',
-      health: discoveryHealth({ config: parsed.data, readiness, runs: runs.data ?? [], nextRunAt }),
+      provider: 'hunter', config: parsed.data, enabled, migrationReady: true, restorationPending, readiness,
+      health: discoveryHealth({ config: { ...parsed.data, enabled }, readiness, runs: runs.data ?? [], nextRunAt }),
       runs: runs.data ?? [], nextRunAt,
-      usage: { requestsToday: usage.data.requests, leadsToday: usage.data.project_requests_saved, dayStart: usage.data.day_start },
+      usage: { requestsToday: usage.data.requests, leadsToday: usage.data.company_leads_saved, dayStart: usage.data.day_start },
     }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch { return discoveryDatabaseError(null); }
 }
@@ -69,15 +61,15 @@ export async function PUT(request: NextRequest) {
   const body = await readSmallJson(request);
   if (body.response) return body.response;
   const parsed = prospectingConfigSchema.safeParse(body.body);
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Check the discovery targeting and limits.' }, { status: 400 });
+  if (!parsed.success || parsed.data.discoveryMode !== 'company_contacts') return NextResponse.json({ error: 'Check the Hunter targeting and limits.' }, { status: 400 });
   const readiness = getProspectingReadiness(session.user.id, parsed.data);
   if (parsed.data.enabled && !readiness.ready) {
-    return NextResponse.json({ error: 'Complete the connection checks before enabling automatic discovery.', readiness }, { status: 409 });
+    return NextResponse.json({ error: 'Complete the Hunter connection checks before enabling automatic discovery.', readiness }, { status: 409 });
   }
   try {
-    const migration = await session.db.rpc('project_discovery_readiness');
+    const migration = await session.db.rpc('hunter_discovery_readiness');
     if (migration.error) return discoveryDatabaseError(migration.error);
-    if (migration.data?.schema_version !== 6) return discoveryDatabaseError(null);
+    if (migration.data?.schema_version !== 9) return NextResponse.json({ error: migrationMessage }, { status: 503 });
     const { data, error } = await session.db.rpc('save_prospecting_settings', { payload: parsed.data });
     if (error) return discoveryDatabaseError(error);
     return NextResponse.json({ config: data?.data ?? parsed.data, nextRunAt: data?.next_run_at ?? null });

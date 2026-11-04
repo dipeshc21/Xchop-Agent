@@ -18,13 +18,12 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
   const { data: { user }, error: authError } = await db.auth.getUser();
   if (authError || !user) redirect('/login');
   const params = await searchParams;
-  if (scalar(params.view).toLowerCase() === 'leads') redirect('/inquiries');
   const period: DashboardPeriod = ['month', 'week', 'all'].includes(scalar(params.period))
     ? scalar(params.period) as DashboardPeriod : 'month';
   const search = scalar(params.q).trim().slice(0, 100);
   const country = scalar(params.country).trim().slice(0, 100);
   const pageNumber = Math.max(1, Math.min(100000, Number.parseInt(scalar(params.p) || '1', 10) || 1));
-  let leadQuery = db.from('leads').select('*', { count: 'exact' })
+  let leadQuery = db.from('leads').select('*', { count: 'exact' }).eq('owner_id', user.id)
     .order('created_at', { ascending: false }).order('id', { ascending: false })
     .range((pageNumber - 1) * PAGE_SIZE, pageNumber * PAGE_SIZE - 1);
   if (search) leadQuery = leadQuery.ilike('company', `%${search.replace(/[\\%_]/g, '\\$&')}%`);
@@ -49,6 +48,6 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
     period={period} search={search} country={country}
     pageNumber={pageNumber} pageSize={PAGE_SIZE} totalLeads={leads.count ?? 0}
     userEmail={user.email ?? ''}
-    initialPage={scalar(params.view).toLowerCase() === 'contacts' ? 'Leads' : scalar(params.view).toLowerCase() === 'settings' ? 'Settings' : 'Dashboard'}
+    initialPage={['contacts', 'leads'].includes(scalar(params.view).toLowerCase()) ? 'Leads' : scalar(params.view).toLowerCase() === 'settings' ? 'Settings' : 'Dashboard'}
   />;
 }

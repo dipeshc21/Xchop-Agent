@@ -9,7 +9,9 @@ const owner = '77000000-0000-4000-8000-000000000001';
 const other = '77000000-0000-4000-8000-000000000002';
 const token = 'published-contact-worker-lease-token';
 const isoDay = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
-const configuration = { ...defaultProspectingConfig, enabled: true, countries: ['US'], dailyLeadLimit: 10,
+const configuration = { ...defaultProspectingConfig, discoveryMode: 'project_requests' as const,
+  services: ['website', 'application'], maxAgeDays: 30, intervalHours: 24,
+  keywords: ['website development', 'application development'], enabled: true, countries: ['US'], dailyLeadLimit: 10,
   lawfulBasis: 'Review and respond to explicit public development requests after reading the source.' };
 
 function project(id = 'first') {

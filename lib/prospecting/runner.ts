@@ -4,7 +4,7 @@ import { HunterClient, ProviderError } from './hunter';
 import { scoreProspect } from './scoring';
 import { aiSummaryConfiguration, createCompanySummaryDraft } from './ai';
 import { assertAutomationOwner, getProspectingReadiness } from './server-config';
-import { createProspectingRepository, RepositoryError, type PersistPayload, type ProspectingRepository } from './repository';
+import { createProspectingRepository, RepositoryError, RequestCheckpointError, type PersistPayload, type ProspectingRepository } from './repository';
 import { prospectingConfigSchema, type CompanyFacts, type DiscoveryPage, type EmailVerification, type FitScore, type FoundContact } from './types';
 
 export type DurableStep = {
@@ -42,8 +42,12 @@ const messages: Record<string, string> = {
   invalid_input: 'A provider request could not be validated.',
   database: 'Discovery could not safely save progress. Check the database setup before running again.',
   request_uncertain: 'A previous request may have reached the provider but has no saved result. It was not repeated to avoid duplicate charges.',
+  recorded_failure: 'A previous provider attempt failed. Its detailed cause was not recorded, so the paid request was not repeated. Check the Inngest execution.',
+  checkpoint_rejected: 'The provider response did not pass the database content checks. This paid request was not repeated.',
+  checkpoint_unavailable: 'The app could not confirm that the provider response was saved in the database. This paid request was not repeated. Check the Inngest step for the database error.',
 };
 function safeCode(error: unknown) {
+  if (error instanceof RequestCheckpointError) return error.code;
   return error instanceof ProviderError && Object.hasOwn(messages, error.code) ? error.code
     : error instanceof RepositoryError ? 'database' : 'unavailable';
 }
@@ -105,6 +109,11 @@ export async function runProspecting(
         if (reservation.status === 'cached') return { ok: true, value: reservation.result as T };
         if (reservation.status === 'budget_exhausted') throw new StopRun('daily_request_limit', 'completed', 'The daily API request cap was reached. Discovery will wait for the next scheduled run.');
         if (reservation.status === 'paused') throw new StopRun('paused', 'cancelled', 'Discovery was paused or its settings changed.');
+        if (reservation.status === 'uncertain' && reservation.state === 'failed') {
+          const stored = reservation.reason?.toLowerCase() ?? '';
+          const code = ['authentication', 'plan', 'pagination', 'quota', 'rate_limit', 'unavailable', 'invalid_response', 'invalid_input'].includes(stored) ? stored : 'recorded_failure';
+          throw new StopRun(code, 'failed', messages[code]);
+        }
         if (reservation.status !== 'reserved') throw new StopRun('request_uncertain', 'failed', messages.request_uncertain);
         let response: T;
         try { response = await callback(); }
@@ -119,6 +128,8 @@ export async function runProspecting(
       } catch (error) {
         // Expected provider/limit outcomes are checkpoint data, not failed Inngest steps.
         if (error instanceof StopRun) return { ok: false, code: error.code, status: error.status, message: error.message };
+        if (error instanceof RequestCheckpointError) return { ok: false, code: error.code, status: 'failed', message: messages[error.code] };
+        if (error instanceof RepositoryError) return { ok: false, code: 'database', status: 'failed', message: messages.database };
         throw error;
       }
     });
@@ -132,6 +143,10 @@ export async function runProspecting(
     summary.skippedCount++;
   }
   try {
+    const sourceMode = (claim.config as { discoveryMode?: unknown }).discoveryMode;
+    if (sourceMode !== undefined && sourceMode !== 'company_contacts') {
+      throw new StopRun('configuration', 'cancelled', 'The restored worker discovers Hunter business contacts. Historical project-request runs cannot be replayed as contact discovery. Restore and save Hunter targeting before starting a new run.');
+    }
     const parsed = prospectingConfigSchema.safeParse(claim.config);
     if (!parsed.success || !parsed.data.enabled || parsed.data.lawfulBasis.trim().length < 10) {
       throw new StopRun('paused', 'cancelled', 'Discovery is paused or a collection basis has not been recorded.');
@@ -242,7 +257,7 @@ export async function runProspecting(
     nextCursors = { ...(claim.cursors ?? {}), [queryKey]: config.paginationEnabled && page.nextOffset !== null ? Math.min(10000, page.nextOffset) : 0 };
     summary.status = 'completed';
     summary.message = config.paginationEnabled
-      ? 'Discovery completed. Only verified business contacts in your selected markets were saved for review.'
+      ? 'Hunter discovery completed. Only sourced, verified business contacts in your selected markets were saved for review. A saved contact does not establish a project requirement.'
       : 'Discovery completed using the first result page only. Queries rotate between runs; already-seen companies are skipped. Full market coverage is not guaranteed.';
     if (aiFailures) summary.message += ` Optional AI drafts were unavailable for ${aiFailures} qualified ${aiFailures === 1 ? 'company' : 'companies'}; provider facts were saved without an AI draft.`;
     if (pendingVerifications) summary.message += ` Verification remains pending for ${pendingVerifications} ${pendingVerifications === 1 ? 'company' : 'companies'}; unfinished checks can resume in a future run.`;

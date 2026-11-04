@@ -10,7 +10,7 @@ export type DiscoveryHealth = {
 };
 
 type HealthInput = {
-  config: Pick<ProspectingConfig, 'enabled' | 'intervalHours'>;
+  config: Pick<ProspectingConfig, 'enabled' | 'intervalHours'> & { discoveryMode?: ProspectingConfig['discoveryMode'] };
   readiness: { ready: boolean; checks: Pick<ConnectionCheck, 'label' | 'ready'>[] };
   runs: ProspectingRun[];
   nextRunAt: string | null;
@@ -40,6 +40,7 @@ const failedReasons: Record<string, string> = {
 /** Presence of keys is not proof that the hosted scheduler has executed. This
  * assessment uses owner-scoped execution records and never calls a provider. */
 export function discoveryHealth({ config, readiness, runs, nextRunAt, now = new Date() }: HealthInput): DiscoveryHealth {
+  const hunter = config.discoveryMode === 'company_contacts';
   const current = now.getTime();
   const ordered = [...runs].sort((a, b) => (time(b.created_at) ?? 0) - (time(a.created_at) ?? 0));
   const latest = ordered[0];
@@ -77,15 +78,16 @@ export function discoveryHealth({ config, readiness, runs, nextRunAt, now = new 
   if (current - due > graceMs) return result('overdue', 'attention', 'Scheduled search is overdue',
     'The next search is more than 90 minutes overdue with no active run. Check that the hosted Inngest hourly schedule is connected and running. Configured keys alone do not confirm scheduling.');
   if (!latest) return result('never_run', 'waiting', 'First search is not verified',
-    `No project-request run is recorded yet. Run discovery now to verify the worker; the saved interval is ${config.intervalHours} hours.`);
+    `No ${hunter ? 'Hunter discovery' : 'project-request'} run is recorded yet. Run discovery now to verify the worker; the saved interval is ${config.intervalHours} hours.`);
   if (latest.status === 'failed') return result('failed', 'attention', 'Last discovery run failed',
     failedReasons[latest.error_code?.toLowerCase() ?? ''] ?? 'The last run did not finish successfully. Review Run history and the Inngest execution before retrying.');
   if (latest.status === 'cancelled') return result('cancelled', 'attention', 'Last discovery run was cancelled',
     'The last run was cancelled, for example after targeting changed or discovery was paused. Confirm the saved targeting and run discovery again.');
   if (latest.request_count < 1) return result('search_not_run', 'attention', 'Last run made no search request',
     'The last run finished without a recorded provider request. Review Run history for a daily limit or setup issue; completion alone does not confirm a search.');
-  if (latest.leads_saved < 1) return result('zero_results', 'attention', 'Last search saved no new requests',
-    'The search completed but no new project requests were saved. Review Run history for rejected evidence or duplicates. A working schedule does not guarantee new matching requests every day.');
+  if (latest.leads_saved < 1) return result('zero_results', 'attention', hunter ? 'Last run saved no new prospects' : 'Last search saved no new requests',
+    hunter ? 'Hunter discovery completed without new saved prospects. Review Run history, targeting, prior companies, email verification, score and credit limits.'
+      : 'The search completed but no new project requests were saved. Review Run history for rejected evidence or duplicates. A working schedule does not guarantee new matching requests every day.');
   return result('verified', 'healthy', 'Discovery execution verified',
-    `The last run completed and saved ${latest.leads_saved} project ${latest.leads_saved === 1 ? 'request' : 'requests'}. The next search follows your saved ${config.intervalHours}-hour interval.`);
+    `The last run completed and saved ${latest.leads_saved} ${hunter ? (latest.leads_saved === 1 ? 'business prospect' : 'business prospects') : (latest.leads_saved === 1 ? 'project request' : 'project requests')}. The next search follows your saved ${config.intervalHours}-hour interval.`);
 }

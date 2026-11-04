@@ -38,7 +38,7 @@ function fixture() {
     claimed: true, allowed: true, finished: false, calls: [] as string[],
     config: { ...structuredClone(defaultProspectingConfig), discoveryMode: 'project_requests' as const,
       enabled: true, countries: ['US'], keywords: ['website development'], services: ['website', 'application'] as ('website' | 'application')[],
-      maxAgeDays: 30, lawfulBasis: 'Reviewing public buyer requests and their published response process.' },
+      maxAgeDays: 30, intervalHours: 24, lawfulBasis: 'Reviewing public buyer requests and their published response process.' },
     results: [project()],
     capacity: { allowed: true, reason: null } as ProjectRunCapacity,
     reservation: null as Reservation | null,

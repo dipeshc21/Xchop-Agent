@@ -1,5 +1,7 @@
 import { supabaseConfigurationStatus } from '../config';
 import { hasTavilyKey } from '../intent/tavily';
+import { hasRealProviderKey } from './hunter';
+import { aiSummaryConfiguration } from './ai';
 import type { ConnectionCheck, ProspectingConfig } from './types';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -44,6 +46,8 @@ export function getProspectingReadiness(ownerId: string, config?: ProspectingCon
   const adminStatus = serviceRoleConfiguration();
   const ownerBound = Boolean(getAutomationOwnerId() && ownerId === getAutomationOwnerId());
   const projectSearch = hasTavilyKey(privateValue('TAVILY_API_KEY'));
+  const projectMode = config?.discoveryMode === 'project_requests';
+  const hunter = /^[a-f0-9]{40}$/i.test(privateValue('HUNTER_API_KEY')) && hasRealProviderKey(privateValue('HUNTER_API_KEY'));
   const local = isLocalInngestDevelopment();
   const unsafeDevelopment = process.env.NODE_ENV === 'production' && Boolean(privateValue('INNGEST_DEV'));
   const background = !unsafeDevelopment && (local || (configuredSecret('INNGEST_EVENT_KEY') && configuredSecret('INNGEST_SIGNING_KEY')));
@@ -52,9 +56,15 @@ export function getProspectingReadiness(ownerId: string, config?: ProspectingCon
     { id: 'supabase', label: 'Supabase connection', ready: publicStatus.ready, message: publicStatus.message },
     { id: 'server-key', label: 'Server database access', ready: adminStatus.ready, message: adminStatus.message },
     { id: 'owner', label: 'Worker account', ready: ownerBound, message: ownerBound ? 'Automatic discovery is bound to your signed-in account.' : 'Set AUTOMATION_OWNER_ID to this account’s Supabase Auth user UUID on the server.' },
-    { id: 'project-search', label: 'Public project-request search', ready: projectSearch, message: projectSearch ? 'Tavily is configured. Search results still need a dated buyer request, a matching service and source evidence before saving.' : 'Add your real Tavily API key as TAVILY_API_KEY on the server. Company/contact data alone cannot establish a project requirement.' },
+    projectMode
+      ? { id: 'project-search', label: 'Public project-request search', ready: projectSearch, message: projectSearch ? 'Tavily is configured. Search results still need a dated buyer request, a matching service and source evidence before saving.' : 'Add your real Tavily API key as TAVILY_API_KEY on the server. Company/contact data alone cannot establish a project requirement.' }
+      : { id: 'hunter', label: 'Hunter official API', ready: hunter, message: hunter ? 'Hunter is configured for company discovery, sourced contact search and business email verification. Provider plan and credits are checked during a run.' : 'Add your actual Hunter API key as HUNTER_API_KEY on the server.' },
     { id: 'scheduler', label: 'Background scheduler', ready: background, message: unsafeDevelopment ? 'Remove INNGEST_DEV from production before enabling signed hosted jobs.' : local ? 'Local Inngest development is configured. Keep both the app and Inngest dev server running.' : background ? 'Inngest event and signing keys are configured. Register the app endpoint in Inngest and keep hosting active.' : 'Configure INNGEST_EVENT_KEY and INNGEST_SIGNING_KEY for hosted scheduling. Local development requires INNGEST_DEV=1 and a running Inngest dev server.' },
     { id: 'lawful-basis', label: 'Collection basis', ready: lawfulBasis, message: lawfulBasis ? 'A collection basis is recorded, or setup is being checked before enabling.' : 'Record the lawful basis for collecting relevant business prospects before enabling discovery.' },
   ];
-  return { ready: checks.every(check => check.ready), ownerBound, checks };
+  if (!projectMode && config?.aiEnabled) {
+    const ai = aiSummaryConfiguration();
+    checks.push({ id: 'ai', label: 'Optional AI drafts', ready: ai.ready, message: ai.message });
+  }
+  return { ready: checks.filter(check => check.id !== 'ai').every(check => check.ready), ownerBound, checks };
 }
