@@ -50,7 +50,7 @@ export function canonicalAlertSource(value: string, resourceType: AlertResourceT
 }
 
 function serviceIn(value: string): AlertService | null {
-  const website = /\b(?:website|web\s+(?:development|design|developer|agency)|wordpress|shopify|webflow|woocommerce|landing\s+page|e-?commerce(?:\s+(?:site|website|store))?)\b/i.test(value);
+  const website = /\b(?:website|web\s+(?:development|design(?:ers?|ing)?|developer|agency)|wordpress|shopify|webflow|woocommerce|landing\s+page|e-?commerce(?:\s+(?:site|website|store))?)\b/i.test(value);
   const application = /\b(?:(?:mobile|web|ios|android|software|custom)\s+(?:apps?|applications?|development)|apps?\s+(?:development|developer|agency)|application\s+(?:development|developer|agency)|(?:ios|android)\s+developer)\b/i.test(value);
   return website && application ? 'website_and_application' : website ? 'website' : application ? 'application' : null;
 }
@@ -59,7 +59,7 @@ function rejection(value: string): string | null {
   if (/\[\s*for\s*hire\s*\]|\b(?:for hire|hire me|looking for clients|seeking clients|(?:my|our) portfolio|our case studies)\b|\b(?:we|i|our agency)\s+(?:offer|provide|speciali[sz]e)\b/i.test(value)) return 'supplier_marketing';
   if (/\b(?:project|tender|rfp|request)\b[^.!?\n]{0,50}\b(?:closed|awarded|cancelled|canceled|withdrawn)\b|\bno longer accepting\b/i.test(value)) return 'closed';
   if (/\b(?:are you|if you(?:['’]re| are))\s+(?:looking|searching)\b/i.test(value)) return 'supplier_marketing';
-  if (!/\b(?:i|we)(?:['’](?:re|m)|\s+(?:are|am))?\s+(?:need|require|want|seek|(?:looking|searching)\s+for)\b|\b(?:company|business|team|client|organi[sz]ation|buyer)\s+(?:is|are)\s+(?:looking\s+for|seeking|searching\s+for)\b|\b(?:looking|searching)\s+for\s+(?:an?\s+)?(?:(?:web(?:site)?|(?:mobile\s+)?app(?:lication)?)\s+(?:developers?|(?:design|development)\s+agenc(?:y|ies))|development\s+(?:agenc(?:y|ies)|partners?))\b|\b(?:request for (?:proposals?|quotations?|tenders?)|rfp|invitation to (?:bid|tender|quote)|seeking\s+(?:an?\s+)?(?:external\s+)?(?:agency|developer|development partner))\b|\[\s*hiring\s*\]/i.test(value)) return 'no_buyer_request';
+  if (!/\b(?:i|we)(?:['’](?:re|m)|\s+(?:are|am))?\s+(?:need|require|want|seek|(?:looking|searching)\s+for)\b|\b(?:company|business|team|client|organi[sz]ation|buyer)\s+(?:is|are)\s+(?:looking\s+for|seeking|searching\s+for)\b|\b(?:looking|searching)\s+for\s+(?:an?\s+)?(?:web\s+(?:designers?|designing\s+agenc(?:y|ies))|(?:web(?:site)?|(?:mobile\s+)?app(?:lication)?)\s+(?:developers?|(?:design|development)\s+agenc(?:y|ies))|development\s+(?:agenc(?:y|ies)|partners?))\b|\b(?:request for (?:proposals?|quotations?|tenders?)|rfp|invitation to (?:bid|tender|quote)|seeking\s+(?:an?\s+)?(?:external\s+)?(?:agency|developer|development partner))\b|\[\s*hiring\s*\]/i.test(value)) return 'no_buyer_request';
   return null;
 }
 export type ParsedAlertFeed = { entries: AlertEntry[]; entriesSeen: number; skippedCount: number; rejections: Record<string, number> };

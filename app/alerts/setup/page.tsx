@@ -8,8 +8,8 @@ function External({ href, children }: { href: string; children: React.ReactNode 
   return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
 }
 
-const generalQuery = '"looking for a web development agency" OR "looking for a web developer" OR ("website redesign" "request for proposal") OR ("mobile app" "request for proposal")';
-const linkedInQuery = 'site:linkedin.com/posts ("looking for a web developer" OR "looking for a development agency" OR "need a website")';
+const generalQuery = '"need a website" OR "looking for a web designer" OR "website redesign RFP"';
+const linkedInQuery = 'site:linkedin.com/posts "looking for" ("web designer" OR "development agency")';
 
 export default function AlertSetupPage() {
   return <main className="setup-shell">
@@ -70,6 +70,18 @@ export default function AlertSetupPage() {
       <p>Use your own production host if it differs from this address. The hosted schedule checks enabled feeds hourly. Google controls when matching results reach your feeds, so hourly checks do not guarantee hourly or daily new leads.</p>
       <p>Feed dates record the alert&apos;s time, which can differ from the original post&apos;s publication date. The app keeps the first saved discovery date and skips previously saved source links, including links seen in both feeds.</p>
       <p>Hunter discovery has its own controls. If its credits are exhausted, open <Link href="/prospecting">Hunter lead discovery</Link> and click <b>Pause discovery</b> to stop its repeated requests. Your free alert sources can continue independently.</p>
+    </section>
+
+    <section className="panel" id="empty-feeds">
+      <h2>Checks complete, but Entries is zero</h2>
+      <p>A completed check confirms the app retrieved and read the feed. If Entries and Skipped are both zero, no feed items were available to review. Changing Inngest keys or rerunning the check does not create Google Alert results.</p>
+      <ol>
+        <li>Open <External href="https://www.google.com/alerts">Google Alerts</External> and edit each alert with its pencil icon. Start with the shorter buyer-request examples above.</li>
+        <li>Under <b>Show options</b>, choose <b>As-it-happens</b>, <b>Sources → Automatic or Web</b>, <b>Language → English</b>, <b>How many → All results</b>, and <b>Deliver to → RSS feed</b>. Broaden the region while testing if your current region has no matches; review each buyer&apos;s actual location before following up.</li>
+        <li>Save the alert. Open its RSS link privately, use <b>Ctrl+U</b> to view the source, then search for <code>&lt;entry</code>. If there are no entries, the app has nothing to import yet.</li>
+        <li>If Google gives you a new RSS link, replace the corresponding saved feed link in <Link href="/alerts">Free alert sources</Link>. Keep that source enabled.</li>
+      </ol>
+      <p>Google Alerts supplies notifications of newly found results, not a complete list of existing search results. The Google preview can show pages that are not in the RSS feed. Enabled sources keep checking hourly; use Check feeds now once actual entries appear.</p>
     </section>
 
     <section className="panel">

@@ -48,6 +48,36 @@ test('the setup guide buyer phrases work without requiring a first-person pronou
   }
 });
 
+test('web designing agency and web designer requests retain an explicit buyer brief', () => {
+  for (const phrase of ['Looking for a web designing agency', 'Looking for a web designer', 'Looking for web designers']) {
+    const result = parseGoogleAlertsFeed(xml(entry({ title: phrase,
+      snippet: 'Company website redesign project: services, contact pages and mobile layouts. Please send your portfolio and timeline.' })), 'google_alerts', { now });
+    assert.equal(result.entriesSeen, 1, phrase); assert.equal(result.skippedCount, 0, phrase);
+    assert.equal(result.entries.length, 1, phrase); assert.equal(result.entries[0].service, 'website', phrase);
+  }
+});
+
+test('web designer and web designing wording identifies website work without a second service keyword', () => {
+  for (const service of ['a web designer', 'web designers', 'a web designing agency']) {
+    const result = parseGoogleAlertsFeed(xml(entry({ title: 'External project request',
+      snippet: `We need ${service} to redesign our business site and its contact pages.` })), 'google_alerts', { now });
+    assert.equal(result.entries.length, 1, service); assert.equal(result.entries[0].service, 'website', service);
+  }
+});
+
+test('web designer wording still rejects marketing questions, self-promotion, jobs and keywords alone', () => {
+  const rows = [
+    { title: 'Are you looking for a web designing agency?', snippet: 'Contact our agency for your next website.' },
+    { title: 'Looking for a web designer?', snippet: 'We offer web designing services. View our work.' },
+    { title: 'Looking for web designers', snippet: 'Full-time website role. Join our team.' },
+    { title: 'Web designers and web designing agencies', snippet: 'Highlights from completed website projects.' },
+  ];
+  const result = parseGoogleAlertsFeed(xml(rows.map((row, index) => entry({ ...row, url: `https://buyer.org/design/${index}` })).join('')), 'google_alerts', { now });
+  assert.equal(result.entries.length, 0); assert.equal(result.skippedCount, rows.length);
+  assert.equal(result.rejections.supplier_marketing, 2); assert.equal(result.rejections.employment, 1);
+  assert.equal(result.rejections.no_buyer_request, 1);
+});
+
 test('LinkedIn resource retains actual public posts and deduplicates tracking/mobile variants', () => {
   const source = 'https://www.linkedin.com/posts/buyer_website-development-activity-1234?utm_source=google';
   const result = parseGoogleAlertsFeed(xml(entry({ url: source }) + entry({ url: source.replace('www.', '') }) + entry({ url: 'https://buyer.org/request' }) + entry({ url: 'https://www.linkedin.com/in/person' })), 'linkedin_posts', { now });

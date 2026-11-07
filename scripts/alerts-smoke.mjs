@@ -88,7 +88,10 @@ const mock = createServer(async (request, response) => {
     assert.ok(columns && columns !== '*' && !columns.includes('lease') && !columns.includes('feed_url'));
     reply([{ id: '00000000-0000-4000-8000-000000000082', resource_type: 'google_alerts', status: 'completed',
       created_at: day.start, finished_at: day.start, entries_seen: 2, leads_saved: 1, skipped_count: 1,
-      error_code: null, message: 'Fixture import completed.' }]); return;
+      error_code: null, message: 'Fixture import completed.' }, {
+      id: '00000000-0000-4000-8000-000000000081', resource_type: 'linkedin_posts', status: 'completed',
+      created_at: day.start, finished_at: day.start, entries_seen: 0, leads_saved: 0, skipped_count: 0,
+      error_code: null, message: 'Alert feed checked. 0 new requests saved for review.' }]); return;
   }
   if (url.pathname === '/rest/v1/rpc/save_alert_feed') {
     let raw = ''; for await (const chunk of request) raw += chunk;
@@ -299,6 +302,8 @@ globalThis.fetch = function(input, init) {
       assert.equal(await browserPage.locator('input[type="url"]').count(), 2, 'Each supported source has its own RSS field.');
       assert.equal(await browserPage.locator('input[type="password"]').count(), 0);
       assert.ok((await browserPage.textContent('main')).includes('This is not a direct LinkedIn connection'));
+      await browserPage.getByText('This check received an empty feed.', { exact: false }).waitFor();
+      assert.equal(await browserPage.getByRole('link', { name: 'Check Google Alert settings' }).getAttribute('href'), '/alerts/setup#empty-feeds');
       await browserPage.goto(`${origin}/alerts/setup`);
       await browserPage.getByRole('heading', { name: 'Connect Google Alerts and public LinkedIn posts.', exact: true }).waitFor();
       await browserPage.getByRole('button', { name: 'Copy free-alert setup SQL', exact: true }).waitFor();
