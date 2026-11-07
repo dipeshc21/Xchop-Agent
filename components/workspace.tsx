@@ -171,7 +171,7 @@ export default function Workspace(props: Props) {
       <button className="brand" onClick={() => go('Dashboard')}><span className="brand-mark">x.</span><span>XHTMLChop<small>GROWTH AGENT</small></span></button>
       <button className="workspace-picker" onClick={() => go('Settings')}><span className="workspace-avatar">XC</span><span>{settings.businessName} workspace<small>Your private workspace</small></span><ChevronDown size={14} /></button>
       <div className="nav-label">WORKSPACE</div>
-      <nav aria-label="Workspace navigation">{navigation.map(([name, Icon]) => <button key={name} className={`nav-item ${page === name ? 'active' : ''}`} onClick={() => go(name)}><Icon size={19} /><span>{name}</span></button>)}<a href="/prospecting" className="nav-item"><Search size={19} /><span>Lead discovery</span></a><a href="/inquiries?period=saved" className="nav-item"><FolderKanban size={19} /><span>Public request archive</span></a></nav>
+      <nav aria-label="Workspace navigation">{navigation.map(([name, Icon]) => <button key={name} className={`nav-item ${page === name ? 'active' : ''}`} onClick={() => go(name)}><Icon size={19} /><span>{name}</span></button>)}<a href="/prospecting" className="nav-item"><Search size={19} /><span>Lead discovery</span></a><a href="/alerts" className="nav-item"><Globe size={19} /><span>Free alert sources</span></a><a href="/inquiries?period=saved" className="nav-item"><FolderKanban size={19} /><span>Public request archive</span></a></nav>
       <div className="nav-label planned-label">PLANNED FEATURES</div>
       <div className="planned-nav">{planned.map(([name, Icon]) => <div key={name} className="nav-item unavailable" title={`${name} has not been implemented yet`}><Icon size={17} /><span>{name}</span><Clock3 size={12} /></div>)}</div>
       <div className="sidebar-bottom"><div className="phase-card"><span className="tiny-overline">LIVE DATA ONLY</span><strong>Your business. Your records.</strong><p>{props.settingsOnly ? 'Business settings connected' : 'Sign-in and database connected'}</p><a href="/setup">Connection & setup guide <ArrowUpRight size={14} /></a></div><button className="profile" onClick={() => go('Settings')}><span className="person-avatar">XC</span><span>Workspace owner<small>{userEmail}</small></span><SettingsIcon size={16} /></button></div>
@@ -179,7 +179,7 @@ export default function Workspace(props: Props) {
     <div className="main-shell">
       <header className="topbar"><div className="breadcrumb"><button className="mobile-menu icon-button" aria-label="Toggle navigation" onClick={() => setMobile(!mobile)}><Menu size={20} /></button><span>Workspace</span><span className="slash">/</span><strong>{page}</strong></div><div className="top-actions"><span className="connection-tag"><span />{props.settingsOnly ? 'Settings connected' : 'Database connected'}</span><button className="icon-button" aria-label="Refresh records" onClick={() => router.refresh()}><RefreshCw size={17} /></button><button className="icon-button" aria-label="Toggle light or dark mode" onClick={() => { const next = !dark; setDark(next); try { localStorage.setItem('xchop-theme', next ? 'dark' : 'light'); } catch { /* Optional appearance preference. */ } }}>{dark ? <Sun size={18} /> : <Moon size={18} />}</button><button className="icon-button" disabled={signingOut} aria-label="Sign out" onClick={signOut}><LogOut size={18} /></button></div></header>
       <main>
-        <div className="page-heading"><div><div className="eyebrow">{page === 'Dashboard' ? 'YOUR GROWTH, AT A GLANCE' : 'XHTMLCHOP WORKSPACE'}</div><h1>{page === 'Dashboard' ? 'Your business, in view.' : page === 'Leads' ? 'Business prospects' : page}</h1><p>{page === 'Dashboard' ? 'Real records from your private workspace.' : page === 'Settings' ? 'Save the details your team and future automations will use.' : 'Business contacts from Hunter and your saved records. Review their sources and confirm project requirements before following up.'}</p></div><div className="heading-actions">{workspaceData && page === 'Dashboard' ? <><select aria-label="Reporting period" value={workspaceData.period} onChange={e => filters({ period: e.target.value })}><option value="month">This month</option><option value="week">Last 7 days</option><option value="all">All time</option></select><a href="/prospecting" className="button primary"><Search size={16} /> Open lead discovery</a></> : workspaceData && page === 'Leads' ? <><Button variant="outline" disabled={exporting} onClick={exportData}><Download size={16} /> Export workspace</Button><Button onClick={() => setAdding(true)}><Plus size={16} /> Add lead</Button></> : <Button variant="outline" disabled={exporting} onClick={exportData}><Download size={16} /> Export workspace</Button>}</div></div>
+        <div className="page-heading"><div><div className="eyebrow">{page === 'Dashboard' ? 'YOUR GROWTH, AT A GLANCE' : 'XHTMLCHOP WORKSPACE'}</div><h1>{page === 'Dashboard' ? 'Your business, in view.' : page === 'Leads' ? 'Business prospects' : page}</h1><p>{page === 'Dashboard' ? 'Real records from your private workspace.' : page === 'Settings' ? 'Save the details your team and future automations will use.' : 'Business contacts and public project alerts. Review the original source before following up.'}</p></div><div className="heading-actions">{workspaceData && page === 'Dashboard' ? <><select aria-label="Reporting period" value={workspaceData.period} onChange={e => filters({ period: e.target.value })}><option value="month">This month</option><option value="week">Last 7 days</option><option value="all">All time</option></select><a href="/prospecting" className="button primary"><Search size={16} /> Open lead discovery</a></> : workspaceData && page === 'Leads' ? <><Button variant="outline" disabled={exporting} onClick={exportData}><Download size={16} /> Export workspace</Button><Button onClick={() => setAdding(true)}><Plus size={16} /> Add lead</Button></> : <Button variant="outline" disabled={exporting} onClick={exportData}><Download size={16} /> Export workspace</Button>}</div></div>
 
         <div className="automation-bar"><div className="automation-copy"><span className="status-icon"><Power size={17} /></span><div><strong>Outreach has not been connected</strong><span>{props.settingsOnly ? 'Business settings are connected. Dashboard and lead access are checked separately.' : 'Hunter discovery finds relevant business contacts. Project requirements remain unconfirmed until supported by a buyer request or reply.'}</span></div></div><span className="approval-badge"><ShieldCheck size={15} /> Approval required</span></div>
 
@@ -199,9 +199,9 @@ export default function Workspace(props: Props) {
         </>}
 
         {workspaceData && page === 'Leads' && <>
-          <div className="discovery-leads-banner panel"><div><strong>Find relevant business contacts.</strong><p>Hunter discovers companies and verifies published work emails. Review the source and confirm their needs before following up.</p></div><a href="/prospecting" className="button primary"><Search size={15} /> Open lead discovery</a></div>
+          <div className="discovery-leads-banner panel"><div><strong>Connect free project alerts.</strong><p>Import Google Alerts and indexed public LinkedIn posts without using Hunter credits.</p></div><div className="alert-banner-actions"><a href="/alerts" className="button primary"><Globe size={15} /> Free alert sources</a><a href="/resources/free-lead-generation-resources.pdf" download className="button outline"><Download size={15} /> Resource list PDF</a></div></div>
           <section className="panel leads-panel">
-            <div className="section-heading"><div><h2>{workspaceData.totalLeads} {workspaceData.totalLeads === 1 ? 'lead' : 'leads'}{workspaceData.search || workspaceData.country ? ' matching your filters' : ''}</h2><p>Business prospects with unconfirmed project requirements. A company match or verified email does not establish a development need.</p></div></div>
+            <div className="section-heading"><div><h2>{workspaceData.totalLeads} {workspaceData.totalLeads === 1 ? 'lead' : 'leads'}{workspaceData.search || workspaceData.country ? ' matching your filters' : ''}</h2><p>Saved contacts and project alerts, with their original resource and discovery date. Review the source to confirm each requirement.</p></div></div>
             <form className="table-filters" onSubmit={e => { e.preventDefault(); filters({ q: query.trim(), p: '1' }); }}>
               <label className="search-field"><Search size={17} /><input aria-label="Search company name" placeholder="Search company name…" maxLength={100} value={query} onChange={e => setQuery(e.target.value)} /></label>
               <select aria-label="Filter country" value={workspaceData.country} onChange={e => filters({ country: e.target.value, p: '1' })}><option value="">All countries</option>{workspaceData.summary.markets.map(item => <option key={item.country}>{item.country}</option>)}</select>
@@ -245,14 +245,60 @@ export default function Workspace(props: Props) {
     </div>
     {toast && <div role="status" className="toast"><Check size={17} />{toast}<button aria-label="Dismiss notification" onClick={() => setToast('')}><X size={16} /></button></div>}
     {workspaceData && adding && <LeadForm excludeIndia={settings.excludeIndia} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); go('Leads'); router.push('/?view=contacts'); router.refresh(); notify('Contact saved to your database.'); }} />}
-    {workspaceData && selected && <LeadDetail lead={selected} onClose={() => setSelected(null)} onSaved={lead => { setSelected(lead); router.refresh(); notify('Lead stage and value saved.'); }} />}
+    {workspaceData && selected && (selected.record_type === 'alert' ? <AlertLeadDetail lead={selected} onClose={() => setSelected(null)} /> : <LeadDetail lead={selected} onClose={() => setSelected(null)} onSaved={lead => { setSelected(lead); router.refresh(); notify('Lead stage and value saved.'); }} />)}
   </div>;
+}
+
+function leadResourceTitle(lead: Lead) {
+  if (lead.resource_title?.trim()) return lead.resource_title.trim();
+  if (lead.discovery_run_id || /\bhunter\b/i.test(lead.source)) return 'Hunter';
+  return lead.source.trim() || 'Manual entry';
+}
+
+function publicResourceUrl(value: string | null | undefined) {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    return ['https:', 'http:'].includes(parsed.protocol) && !parsed.username && !parsed.password ? parsed.href : null;
+  } catch { return null; }
 }
 
 function LeadTable({ leads, onSelect, emptyAction, leadPeriod, filtered = false }: { leads: Lead[]; onSelect: (lead: Lead) => void; emptyAction: () => void; leadPeriod?: 'today' | 'past'; filtered?: boolean }) {
   const emptyTitle = filtered ? 'No leads match these filters.' : leadPeriod === 'today' ? 'No leads discovered today.' : leadPeriod === 'past' ? 'No past leads yet.' : 'No leads to show yet.';
   const emptyMessage = filtered ? 'Try another search or country within this tab.' : leadPeriod === 'today' ? 'Earlier leads are available in Past. New discoveries will appear here.' : leadPeriod === 'past' ? 'Leads discovered before today appear here automatically.' : 'Add a real business contact, or clear your search filters.';
-  return <div className="table-scroll"><table><thead><tr><th>COMPANY / CONTACT</th><th>COUNTRY</th><th>DATE DISCOVERED</th><th>FIT SCORE</th><th>STAGE</th><th>VALUE (USD)</th><th><span className="sr-only">Details</span></th></tr></thead><tbody>{leads.map((lead, index) => <tr key={lead.id}><td><button className="company-button" onClick={() => onSelect(lead)}><span className={`company-avatar tone-${index % 4}`}>{lead.company.split(' ').slice(0, 2).map(word => word[0]).join('')}</span><span><strong>{lead.company}</strong><small>{lead.contact_name || 'No contact name'}{lead.segment ? ` · ${lead.segment}` : ''}</small></span></button></td><td>{lead.country}</td><td><time dateTime={lead.created_at}>{date(lead.created_at)}</time></td><td>{lead.score_reason && lead.score_reason !== 'Not scored' ? <span className="score" title={lead.score_reason}>{lead.score} / 100</span> : <span className="not-scored">Not scored</span>}</td><td><span className={`stage stage-${lead.stage.toLowerCase().replaceAll(' ', '-')}`}>{lead.stage}</span></td><td className="value-cell">{money(lead.value)}</td><td><button className="icon-button" aria-label={`View ${lead.company}`} onClick={() => onSelect(lead)}><ArrowUpRight size={16} /></button></td></tr>)}</tbody></table>{!leads.length && <div className="empty-records"><Users size={28} /><h3>{emptyTitle}</h3><p>{emptyMessage}</p><Button onClick={emptyAction}><Plus size={15} /> Add a lead</Button></div>}</div>;
+  return <div className="table-scroll"><table><thead><tr><th>COMPANY / CONTACT</th><th>COUNTRY</th><th>DATE DISCOVERED</th><th>RESOURCE TITLE</th><th>FIT SCORE</th><th>STAGE</th><th>VALUE (USD)</th><th><span className="sr-only">Details</span></th></tr></thead><tbody>{leads.map((lead, index) => {
+    const original = publicResourceUrl(lead.resource_url);
+    const alert = lead.record_type === 'alert';
+    return <tr key={lead.id}>
+      <td><button className={`company-button ${alert ? 'lead-alert-title' : ''}`} onClick={() => onSelect(lead)}><span className={`company-avatar tone-${index % 4}`}>{lead.company.split(' ').slice(0, 2).map(word => word[0]).join('')}</span><span><strong>{lead.company}</strong><small>{alert ? 'Project alert · review original request' : <>{lead.contact_name || 'No contact name'}{lead.segment ? ` · ${lead.segment}` : ''}</>}</small></span></button></td>
+      <td>{lead.country}</td><td><time dateTime={lead.created_at}>{date(lead.created_at)}</time></td>
+      <td className="lead-resource-cell">{original ? <a href={original} target="_blank" rel="noreferrer">{leadResourceTitle(lead)} <ArrowUpRight size={12} /></a> : leadResourceTitle(lead)}</td>
+      <td>{lead.score_reason && lead.score_reason !== 'Not scored' ? <span className="score" title={lead.score_reason}>{lead.score} / 100</span> : <span className="not-scored">Not scored</span>}</td>
+      <td><span className={`stage stage-${lead.stage.toLowerCase().replaceAll(' ', '-')}`}>{alert ? 'Needs review' : lead.stage}</span></td><td className="value-cell">{alert ? 'Not stated' : money(lead.value)}</td>
+      <td><button className="icon-button" aria-label={`View ${lead.company}`} onClick={() => onSelect(lead)}><ArrowUpRight size={16} /></button></td>
+    </tr>;
+  })}</tbody></table>{!leads.length && <div className="empty-records"><Users size={28} /><h3>{emptyTitle}</h3><p>{emptyMessage}</p><Button onClick={emptyAction}><Plus size={15} /> Add a lead</Button></div>}</div>;
+}
+
+function AlertLeadDetail({ lead, onClose }: { lead: Lead; onClose: () => void }) {
+  const original = publicResourceUrl(lead.resource_url);
+  const service = lead.alert_service === 'website_and_application' ? 'Website and application development'
+    : lead.alert_service === 'application' ? 'Application development' : lead.alert_service === 'website' ? 'Website development' : 'Review original request';
+  return <Modal title={lead.company} onClose={onClose}>
+    <p className="modal-description">Public project alert · review the original request before responding.</p>
+    <dl>
+      <div><dt>Resource title</dt><dd>{leadResourceTitle(lead)}</dd></div>
+      <div><dt>First discovered</dt><dd>{date(lead.created_at)} · India time</dd></div>
+      <div><dt>Service mentioned</dt><dd>{service}</dd></div>
+      <div><dt>Contact name</dt><dd>{lead.contact_name || 'Not published in the alert'}</dd></div>
+      <div><dt>Contact email</dt><dd>{lead.email ? <><a href={`mailto:${lead.email}`}>{lead.email}</a><small className="alert-contact-note">Published address · delivery not verified</small></> : 'Not published in the alert'}</dd></div>
+      {original && <div><dt>Original source</dt><dd><a href={original} target="_blank" rel="noreferrer">{original} <ArrowUpRight size={12} /></a></dd></div>}
+      {lead.feed_published_at && <div><dt>Alert feed date</dt><dd>{date(lead.feed_published_at)}</dd></div>}
+    </dl>
+    {lead.alert_snippet && <div className="alert-request-snippet"><h3>What the alert found</h3><blockquote>{lead.alert_snippet}</blockquote></div>}
+    <p className="alert-contact-note">The feed date records the alert or indexing time, not necessarily the original post date. Missing contact details remain unknown. Open the source to check availability, the full requirements and how to reply.</p>
+    {original && <div className="modal-actions"><a href={original} className="button primary" target="_blank" rel="noreferrer">Open original request <ArrowUpRight size={15} /></a></div>}
+  </Modal>;
 }
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {

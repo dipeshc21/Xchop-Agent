@@ -16,6 +16,12 @@ export default async function ProspectingSetupPage() {
     <p>This restores the Hunter discovery flow used for your earlier business contacts. Your saved contacts, business settings, suppression choices, run history, and public project-request records stay in place.</p>
     <div className="info-box"><ShieldCheck size={20} /><p>Hunter finds businesses and published work contacts. A verified email or company match does not establish a website/app project requirement or permission to send marketing. Contact names and emails remain visible alongside their source details; unknown project requirements stay unknown.</p></div>
 
+    <section className="panel">
+      <h2>Add free Google and LinkedIn project alerts</h2>
+      <p>Connect your Google Alerts RSS feeds to discover public website/app requests. LinkedIn results come from public posts indexed by Google. This connection uses no Hunter credits and runs independently of your Hunter schedule.</p>
+      <div className="setup-actions"><Link href="/alerts/setup" className="button primary">Set up free alerts →</Link><Link href="/alerts" className="button outline">Manage alert sources</Link><a href="/resources/free-lead-generation-resources.pdf" download className="button outline">Download resource list PDF</a></div>
+    </section>
+
     <section className="panel" id="hunter-restoration">
       <h2 style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Database size={19} /> 1. Install the Hunter restoration update</h2>
       <p>Use your existing Supabase project. Migration <code>009_restore_hunter_discovery.sql</code> restores the database access needed by Hunter while preserving existing data. It is safe to repeat.</p>

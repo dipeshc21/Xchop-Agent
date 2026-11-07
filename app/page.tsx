@@ -18,6 +18,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
   const db = await supabaseServer();
   const { data: { user }, error: authError } = await db.auth.getUser();
   if (authError || !user) redirect('/login');
+  const ownerId = user.id;
   const params = await searchParams;
   const view = scalar(params.view).toLowerCase();
   const isLeadsView = ['contacts', 'leads'].includes(view);
@@ -28,16 +29,27 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
   const search = scalar(params.q).trim().slice(0, 100);
   const country = scalar(params.country).trim().slice(0, 100);
   const pageNumber = Math.max(1, Math.min(100000, Number.parseInt(scalar(params.p) || '1', 10) || 1));
-  let leadQuery = db.from('leads').select('*', { count: 'exact' }).eq('owner_id', user.id)
-    .order('created_at', { ascending: false }).order('id', { ascending: false })
-    .range((pageNumber - 1) * PAGE_SIZE, pageNumber * PAGE_SIZE - 1);
-  if (isLeadsView) leadQuery = leadPeriod === 'today'
-    ? leadQuery.gte('created_at', day.start).lt('created_at', day.end)
-    : leadQuery.lt('created_at', day.start);
-  if (search) leadQuery = leadQuery.ilike('company', `%${search.replace(/[\\%_]/g, '\\$&')}%`);
-  if (country) leadQuery = leadQuery.eq('country', country);
+  function leadQuery(table: string) {
+    let query = db.from(table).select('*', { count: 'exact' }).eq('owner_id', ownerId)
+      .order('created_at', { ascending: false }).order('id', { ascending: false })
+      .range((pageNumber - 1) * PAGE_SIZE, pageNumber * PAGE_SIZE - 1);
+    if (isLeadsView) query = leadPeriod === 'today'
+      ? query.gte('created_at', day.start).lt('created_at', day.end)
+      : query.lt('created_at', day.start);
+    if (search) query = query.ilike('company', `%${search.replace(/[\\%_]/g, '\\$&')}%`);
+    if (country) query = query.eq('country', country);
+    return query;
+  }
+  async function loadLeads() {
+    if (!isLeadsView) return leadQuery('leads');
+    const combined = await leadQuery('workspace_lead_records');
+    // The new feed setup is additive. Existing contacts remain available before
+    // migration 010 is installed; other errors must not hide missing alerts.
+    if (combined.error && ['PGRST205', '42P01'].includes(combined.error.code ?? '')) return leadQuery('leads');
+    return combined;
+  }
   const [leads, settings, summary] = await Promise.all([
-    leadQuery,
+    loadLeads(),
     db.from('settings').select('data').eq('owner_id', user.id).maybeSingle(),
     db.rpc('workspace_dashboard', { period }),
   ]);

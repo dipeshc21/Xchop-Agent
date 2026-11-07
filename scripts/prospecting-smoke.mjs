@@ -176,6 +176,10 @@ const mock = createServer(async (request, response) => {
     return;
   }
   if (request.method === 'GET' && url.pathname === '/rest/v1/suppression_list') { reply(suppressionEntries); return; }
+  if (request.method === 'GET' && url.pathname === '/rest/v1/workspace_lead_records') {
+    assert.equal(url.searchParams.get('owner_id'), `eq.${ownerId}`);
+    reply({ code: 'PGRST205', message: 'Free alert setup is not installed in this legacy fixture.' }, 404); return;
+  }
   if (request.method === 'GET' && url.pathname === '/rest/v1/leads') {
     if (url.searchParams.has('id')) {
       reply(url.searchParams.get('id') === `eq.${leadId}` ? [{ id: leadId }] : []); return;

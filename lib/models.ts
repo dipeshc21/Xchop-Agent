@@ -19,4 +19,10 @@ export type Lead = {
   email_verified_at?: string | null;
   contact_review_status?: string;
   discovery_run_id?: string | null;
+  record_type?: 'contact' | 'alert';
+  resource_title?: string | null;
+  resource_url?: string | null;
+  alert_snippet?: string | null;
+  alert_service?: 'website' | 'application' | 'website_and_application' | null;
+  feed_published_at?: string | null;
 };

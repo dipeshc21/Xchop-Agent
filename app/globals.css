@@ -1,5 +1,50 @@
 @import "tailwindcss";
 
+/* Free alert connections and their source trace in the lead list. */
+.alerts-shell{max-width:1200px;margin:auto}
+.alerts-back-links{display:flex;align-items:center;justify-content:space-between;gap:15px;font-size:12px}
+.alerts-back-links a{display:flex;align-items:center;gap:7px}
+.alerts-page-heading{margin-top:32px}
+.alerts-shell .heading-actions a,.alerts-shell .button{white-space:nowrap;text-decoration:none}
+.alerts-shell>.info-box{margin:20px 0}
+.alerts-shell .info-box strong{color:var(--text);font-size:13px}
+.alerts-shell .info-box small{font-size:10px;line-height:1.7}
+.alerts-shell .info-box p{margin:5px 0;font-size:12px}
+.alerts-shell>.panel.alert-readiness,.alerts-shell>.panel.alert-run-history{padding:0;max-width:none}
+.alert-install-note{display:flex;align-items:start;gap:15px}
+.alert-install-note>svg{color:var(--green);flex-shrink:0}
+.alert-source-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:24px}
+.alert-source-card{padding:26px;min-width:0}
+.alert-source-card-title{display:flex;align-items:start;gap:13px;margin-bottom:25px}
+.alert-source-card-title h2{font-size:19px}
+.alert-source-card-title p{font-size:12px;margin:7px 0 0}
+.alert-source-icon{height:44px;width:44px;display:grid;place-items:center;background:var(--green-soft);color:var(--green);border-radius:9px;flex-shrink:0}
+.alert-source-card .checkbox-label{margin:22px 0}
+.alert-source-card .alert-card-help{font-size:11px;margin-bottom:15px}
+.alert-card-submit{display:flex;align-items:center;gap:14px}
+.alert-card-submit>span{font-size:10px;color:var(--muted);line-height:1.6}
+.alert-source-times{display:flex;flex-direction:column;gap:7px;border-top:1px solid var(--line);margin:21px 0 17px;padding-top:18px;font-size:10px;color:var(--muted)}
+.alert-schedule-note{font-size:11px!important;margin:16px 0 24px!important}
+.alert-resource-download{display:flex;justify-content:space-between;align-items:center;gap:24px}
+.alert-resource-download>div>svg{color:var(--green);margin-bottom:10px}
+.alert-resource-download h2{font-size:21px}
+.alert-resource-download p{max-width:600px;margin-bottom:0!important}
+.alert-banner-actions{display:flex;flex-wrap:wrap;gap:10px;justify-content:flex-end}
+.lead-resource-cell{max-width:210px;min-width:110px;white-space:normal;line-height:1.6}
+.lead-resource-cell a{color:var(--green);text-decoration:underline}
+.lead-resource-cell svg{display:inline;vertical-align:middle}
+.table-scroll{position:relative}
+.lead-alert-title{max-width:370px;white-space:normal;line-height:1.6}
+.lead-alert-title .company-avatar{flex-shrink:0}
+.alert-request-snippet{margin:23px 0}
+.alert-request-snippet h3{font-size:13px;font-weight:600}
+.alert-request-snippet blockquote{font-size:12px;line-height:1.8;white-space:pre-wrap;margin:12px 0;padding:15px 18px;border-left:3px solid var(--green);background:var(--soft);overflow-wrap:anywhere}
+.alert-contact-note{display:block;font-size:11px!important;line-height:1.8;color:var(--muted);margin-top:8px}
+.free-alert-discovery-note{margin-bottom:24px}
+.free-alert-discovery-note strong{color:var(--text)}
+.free-alert-discovery-note p{font-size:12px;margin:5px 0 10px}
+@media(max-width:800px){.alert-source-grid{grid-template-columns:1fr}.alert-resource-download{align-items:start;flex-direction:column}.alert-banner-actions{justify-content:flex-start}.alerts-page-heading .heading-actions{flex-wrap:wrap}.alert-source-card{padding:22px}.alerts-back-links{flex-wrap:wrap}}
+
 /* Contact details stay visible above inquiry evidence. */
 .contact-summary{margin:22px 0 28px;padding:20px;border:1px solid var(--line);border-radius:7px;background:var(--soft)}
 .contact-summary h3{font-size:16px;font-weight:500;margin-bottom:15px}

@@ -6,6 +6,22 @@ Automatic discovery uses Hunter to find companies, enrich their business details
 
 A saved contact is a prospect. Company fit and a verified email do not establish an active website/app project or permission to send marketing. Contact names, emails, roles, and websites stay visible above the four source/requirement fields. Unknown requirements stay unknown. This phase does not send messages, submit proposals, or process payments.
 
+## Connect free Google Alerts and LinkedIn public-post alerts
+
+Open **Free alert sources** from Leads or visit `/alerts`. This importer uses owner-created Google Alerts RSS feeds and your existing hosted scheduler. It makes no Hunter, Tavily or AI calls. LinkedIn results are public posts indexed by Google; this is not a direct LinkedIn login/API connection and coverage can be delayed or incomplete.
+
+1. Open `/alerts/setup` and click **Copy free-alert setup SQL**. In your existing Supabase project, choose **SQL Editor → New query**, paste the complete **010_free_alert_sources.sql**, and click **Run**. Keep your earlier migrations and saved records. Do not rerun the foundation or Hunter restoration for this update.
+2. Sign in at [Google Alerts](https://www.google.com/alerts). Create a buyer-request alert, for example `"looking for a web development agency" OR "website redesign RFP" OR "mobile app development RFP"`. Under **Show options → Deliver to**, select **RSS feed**, then create the alert. Copy the RSS icon's link. If RSS is unavailable, use **As-it-happens** and disable digest delivery settings.
+3. Create a second alert for public LinkedIn posts, for example `site:linkedin.com/posts "looking for" ("web developer" OR "development agency" OR "app developer")`. Select RSS delivery and copy this second feed link.
+4. On `/alerts`, paste the first link into **Google Alerts** and the second into **LinkedIn public posts**. Give each its Resource title, enable the source, and click **Save source**. Feed URLs are private settings; no Google or LinkedIn password is required. The app accepts only Google Alerts feed links.
+5. Keep your existing Supabase, server database key, `AUTOMATION_OWNER_ID`, and Inngest keys. No new paid provider account or API key is needed. In Inngest Production, resync `https://xchop-agent.vercel.app/api/inngest` and confirm **Free alerts · hourly feed checks** and **Free alerts · Google and LinkedIn public requests** appear alongside the two Hunter functions. Use your own host if different.
+6. Choose **Check feeds now**. Review import history for actual entries reviewed, saved and skipped. Scheduled checks run when due on an hourly tick; manual checks less than two minutes apart are skipped. Hunter controls are independent: pause Hunter discovery if its credits are exhausted.
+7. Open **Leads → Today**. The combined list retains existing contacts and adds review-required alerts, with **Resource title**, original source link and discovery date. Earlier discoveries remain in **Past**. Cross-feed/cross-day duplicate URLs do not become fresh leads again.
+
+The importer saves only snippets suggesting a website/app buyer request. It skips obvious job advertisements, seller promotions, unrelated pages, unsupported URLs and old alert timestamps. Open the original page to confirm the full requirement, availability and how to reply. Contact details are included only when explicitly published in the snippet; missing names/emails stay unknown. Alert-feed dates describe indexing/alert time, not necessarily the original post's publication date. Alerts use a read-only review popup, while existing contact editing remains available. The dashboard's contact totals remain CRM-contact totals.
+
+Download the four-page [free lead-generation resource guide](public/resources/free-lead-generation-resources.pdf), or use `/resources/free-lead-generation-resources.pdf` on your deployed app. The PDF includes all twelve researched resources, free-access limits and search examples. An editable source is in `docs/free-lead-generation-resources.md`.
+
 ## Restore your existing installation
 
 Use this path when you already have a working Supabase sign-in and saved records.

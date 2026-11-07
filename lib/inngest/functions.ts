@@ -3,6 +3,7 @@ import { getProspectingReadiness } from '@/lib/prospecting/server-config';
 import { queueDueProspectingRun } from '@/lib/prospecting/repository';
 import { runProspecting } from '@/lib/prospecting/runner';
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { alertFunctions } from '@/lib/alerts/jobs';
 
 async function hunterDatabaseReady() {
   try {
@@ -68,4 +69,4 @@ export const prospectorAgent = inngest.createFunction({
   return result;
 });
 
-export const prospectingFunctions = [prospectorSchedule, prospectorAgent];
+export const prospectingFunctions = [prospectorSchedule, prospectorAgent, ...alertFunctions];

@@ -4,11 +4,12 @@ import { useState } from 'react';
 import { Check, Copy, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-export default function ProspectingSetupActions({ migration = '009_restore_hunter_discovery.sql' }: { migration?: '006_project_requests.sql' | '007_project_contacts.sql' | '008_discovery_reliability.sql' | '009_restore_hunter_discovery.sql' }) {
+export default function ProspectingSetupActions({ migration = '009_restore_hunter_discovery.sql' }: { migration?: '006_project_requests.sql' | '007_project_contacts.sql' | '008_discovery_reliability.sql' | '009_restore_hunter_discovery.sql' | '010_free_alert_sources.sql' }) {
   const migrationUrl = `/migrations/${migration}`;
   const contactUpdate = migration === '007_project_contacts.sql';
   const discoveryRepair = migration === '008_discovery_reliability.sql';
   const hunterRestoration = migration === '009_restore_hunter_discovery.sql';
+  const freeAlertSetup = migration === '010_free_alert_sources.sql';
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [message, setMessage] = useState('');
@@ -48,7 +49,7 @@ export default function ProspectingSetupActions({ migration = '009_restore_hunte
     <div className="setup-actions">
       <Button type="button" disabled={busy} onClick={copySql}>
         {copied ? <Check size={16} /> : <Copy size={16} />}
-        {busy ? 'Opening SQL…' : copied ? 'SQL copied' : hunterRestoration ? 'Copy Hunter restoration SQL' : discoveryRepair ? 'Copy discovery-repair SQL' : contactUpdate ? 'Copy contact-update SQL' : 'Copy project-request SQL'}
+        {busy ? 'Opening SQL…' : copied ? 'SQL copied' : freeAlertSetup ? 'Copy free-alert setup SQL' : hunterRestoration ? 'Copy Hunter restoration SQL' : discoveryRepair ? 'Copy discovery-repair SQL' : contactUpdate ? 'Copy contact-update SQL' : 'Copy project-request SQL'}
       </Button>
       <a className="button outline" href={migrationUrl} target="_blank" rel="noreferrer">
         Open SQL file <ExternalLink size={15} />

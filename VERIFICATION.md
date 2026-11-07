@@ -71,3 +71,13 @@ The current cloud workspace has no configured live Supabase, Hunter, Vercel or I
 - Existing historical failures remain in the audit; they are not rewritten as successful runs. Evaluate a new post-restoration execution.
 - The earlier supplied ledger showed reserved attempts with no response/error, and some prior successful operations in the same run. It narrowed the failure window but did not establish the original interruption. Do not attribute those old failures to a specific live provider/database cause without the corresponding error.
 - Email outreach, replies, proposals, payments and delivery remain later phases. Records and archives are retained; no automatic cleanup is performed.
+
+## Free alerts integration — November 2026
+
+Migration 010 adds independent owner-scoped feed settings, leased import runs, immutable URL save audits and a security-invoker combined Leads view. Existing Hunter tables, contact constraints, settings and provider functions are preserved. The Leads page falls back to its contact table before 010 is installed.
+
+Google Alerts supplies both the general web feed and the LinkedIn public-post feed. Only exact Google feed URLs are fetched; redirects, arbitrary hosts, DTD/entities, oversized documents and unsafe original URLs are rejected. The importer never fetches a LinkedIn/source page or calls Hunter, Tavily or AI. Source snippets remain plain text and publication dates/contact identity are not invented. Two feeds share canonical-URL duplicate protection; first discovery timestamps never refresh on duplicates.
+
+Validation on 7 November 2026: all **32 test files** passed, including real PostgreSQL migration/lease/tenant/duplicate checks; TypeScript, the production build, all three existing HTTP smoke checks and `ALERTS_BROWSER=1 npm run smoke:alerts` passed. Final SQL skip-diagnostic changes passed the focused database suite and exact-copy checks. Chromium checked desktop/mobile layouts, source review, tabs, filters, navigation and RSS setup fields. The alert smoke uses localhost Supabase fixtures and an intercepted Inngest dispatch, with all real provider requests blocked. It checks auth/origin guards, no-Hunter readiness, API field projection, setup/migration/PDF downloads, combined Today/Past records, resource titles, contact-table fallback, read-only alert details and browser navigation. The PDF is a validated four-page document with clickable source links.
+
+Live activation still needs the owner to apply 010, create their own two RSS feeds, save/enable the feeds privately in the app and resync the hosted Inngest endpoint. Fixture validation does not prove the owner's feeds have results or that a live unattended import occurred.
